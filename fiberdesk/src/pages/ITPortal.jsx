@@ -28,12 +28,20 @@ export default function ITPortal({ user, onLogout }) {
   const [selectedSlowNet, setSelectedSlowNet] = useState(null);
   const [slowNetUpdate, setSlowNetUpdate] = useState("");
   const [slowNetSolution, setSlowNetSolution] = useState("");
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     const u1 = onValue(ref(db, "jobs"), snap => {
       setJobs(snap.exists() ? snap.val() : {});
     });
     return () => { u1(); };
+  }, []);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
   // Only installation jobs
@@ -101,7 +109,7 @@ export default function ITPortal({ user, onLogout }) {
         </div>
       </div>
 
-      <div style={s.body}>
+      <div style={{ ...s.body, flexDirection: isMobile ? "column" : "row" }}>
         {/* PAGE SWITCHER */}
         <div style={{ display: "flex", gap: 8, padding: "12px 16px", borderBottom: "1px solid #222840", background: "#0c0f1a" }}>
           <button style={{ ...s.tab, borderBottomColor: "#4d8ef5", color: "#4d8ef5" }}>📋 Job Orders</button>
@@ -109,7 +117,7 @@ export default function ITPortal({ user, onLogout }) {
 
         {/* LEFT PANEL — JOB LIST */}
         {showPage === "jobs" && (
-        <div style={s.leftPanel}>
+        <div style={{ ...s.leftPanel, width: isMobile ? "100%" : 340, height: isMobile && selected ? "50%" : "auto" }}>
           {/* TABS */}
           <div style={s.tabs}>
             {[["pending", `For Activation (${forApproval.length})`, "#f0a030"],
@@ -157,7 +165,8 @@ export default function ITPortal({ user, onLogout }) {
         )}
 
         {/* RIGHT PANEL — DETAIL */}
-        <div style={s.rightPanel}>
+        {showPage === "jobs" && (selected || !isMobile) && (
+        <div style={{ ...s.rightPanel, width: isMobile ? "100%" : "auto", height: isMobile ? "50%" : "auto" }}>
           {showPage === "jobs" && !selectedJob ? (
             <div style={s.emptyDetail}>
               <div style={{ fontSize: 40, marginBottom: 14 }}>💻</div>
@@ -303,6 +312,7 @@ export default function ITPortal({ user, onLogout }) {
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   );

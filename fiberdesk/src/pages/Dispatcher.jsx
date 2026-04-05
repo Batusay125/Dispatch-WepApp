@@ -23,6 +23,7 @@ export default function Dispatcher({ user, onLogout }) {
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [siteFilter, setSiteFilter] = useState("all");
+  const [isMobile, setIsMobile] = useState(false);
 
   function emptyForm() {
     return { acct: "", client: "", contact: "", address: "", site: "Socorro", type: "install", priority: "normal", lcp: "", nap: "", port: "", notes: "", date: new Date().toISOString().split("T")[0], techIds: [], plan: "", referral: "", installFee: "" };
@@ -38,6 +39,13 @@ export default function Dispatcher({ user, onLogout }) {
     const u2 = onValue(ref(db, "technicians"), s => setTechs(s.exists() ? s.val() : {}));
     const u3 = onValue(ref(db, "deletedJobs"), s => setDeletedJobs(s.exists() ? s.val() : {}));
     return () => { u1(); u2(); u3(); };
+  }, []);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
   const jobList = Object.entries(jobs);
@@ -172,20 +180,20 @@ export default function Dispatcher({ user, onLogout }) {
         </div>
       </div>
 
-      <div style={s.body}>
+      <div style={{ ...s.body, flexDirection: isMobile ? "column" : "row" }}>
         {/* SIDEBAR */}
         {sidebarOpen && (
-          <nav style={s.sidebar}>
+          <nav style={{ ...s.sidebar, width: isMobile ? "100%" : 190, position: isMobile ? "absolute" : "static", zIndex: isMobile ? 100 : "auto", height: isMobile ? "calc(100vh - 52px)" : "auto" }}>
             <div style={{ padding: "8px 0 4px", fontSize: 9, fontWeight: 700, letterSpacing: ".14em", color: "#3d4668", paddingLeft: 14, textTransform: "uppercase" }}>Main</div>
             {navPages.slice(0, 5).map(([key, ic, lbl, badge]) => (
-              <div key={key} style={{ ...s.navItem, ...(page === key ? s.navActive : {}) }} onClick={() => setPage(key)}>
+              <div key={key} style={{ ...s.navItem, ...(page === key ? s.navActive : {}) }} onClick={() => { setPage(key); if (isMobile) setSidebarOpen(false); }}>
                 <span style={{ fontSize: 13, width: 16, textAlign: "center" }}>{ic}</span>{lbl}
                 {badge && <span style={s.navBadge}>{badge}</span>}
               </div>
             ))}
             <div style={{ padding: "12px 14px 4px", fontSize: 9, fontWeight: 700, letterSpacing: ".14em", color: "#3d4668", textTransform: "uppercase" }}>Admin</div>
             {navPages.slice(5).map(([key, ic, lbl]) => (
-              <div key={key} style={{ ...s.navItem, ...(page === key ? s.navActive : {}) }} onClick={() => setPage(key)}>
+              <div key={key} style={{ ...s.navItem, ...(page === key ? s.navActive : {}) }} onClick={() => { setPage(key); if (isMobile) setSidebarOpen(false); }}>
                 <span style={{ fontSize: 13, width: 16, textAlign: "center" }}>{ic}</span>{lbl}
               </div>
             ))}
@@ -193,7 +201,7 @@ export default function Dispatcher({ user, onLogout }) {
         )}
 
         {/* CONTENT */}
-        <main style={s.content}>
+        <main style={{ ...s.content, padding: isMobile ? 10 : 20 }}>
 
           {/* DASHBOARD */}
           {page === "dashboard" && (
