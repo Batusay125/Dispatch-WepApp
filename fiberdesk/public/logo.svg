@@ -1,0 +1,13 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="128" height="128" fill="#1a2847"/>
+  
+  <!-- Outer square border -->
+  <rect x="20" y="20" width="88" height="88" fill="none" stroke="#e8eef7" stroke-width="6"/>
+  
+  <!-- Inner accent -->
+  <rect x="26" y="26" width="76" height="76" fill="none" stroke="#e8eef7" stroke-width="2" opacity="0.5"/>
+  
+  <!-- KC Text -->
+  <text x="64" y="75" font-family="Arial, sans-serif" font-size="48" font-weight="bold" fill="#e8eef7" text-anchor="middle" dominant-baseline="middle" letter-spacing="2">KC</text>
+</svg>

@@ -1,0 +1,11 @@
+# Ignore local environment and node modules
+node_modules
+*.log
+.DS_Store
+.env*
+
+# Ignore project-specific build outputs
+fiberdesk/dist
+fiberdesk/node_modules
+fiberdesk/.env*
+fiberdesk/package-lock.json
