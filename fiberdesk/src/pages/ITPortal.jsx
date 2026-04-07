@@ -68,19 +68,6 @@ export default function ITPortal({ user, onLogout }) {
     });
     setSelected(null); setCode(""); setCodeNote(""); setSubmitting(false);  
   }
-  async function submitPass() {
-    if (!codePass.trim()) { alert("Ilagay ang activation password"); return; }
-    if (!selected) return;
-    setSubmitting(true);
-    await update(ref(db, "jobs/" + selected), {
-      status: "activated",
-      itPass: codePass.trim(),
-      itNote: codeNote.trim(),
-      itBy: user.name,
-      activatedAt: new Date().toISOString(),
-    });
-    setSelected(null); setCode(""); setCodeNote(""); setSubmitting(false);
-  }
 
 
   async function markConfiguring(jobId) {
@@ -286,15 +273,6 @@ export default function ITPortal({ user, onLogout }) {
                       value={code}
                       onChange={e => setCode(e.target.value)}
                       placeholder="e.g. L1N1P1@1000123 USERNAME"
-                    />
-                  </div>
-                  <div style={{ marginBottom: 10 }}>
-                    <label style={s.lbl}>Activation Code / PASSWORD</label>
-                    <input
-                      style={{ ...s.fi, fontSize: 15, fontFamily: "monospace", letterSpacing: 1, fontWeight: 700 }}
-                      value={pass}
-                      onChange={e => setPass(e.target.value)}
-                      placeholder="e.g. 1A2B3C4D5E6F MAC"
                     />
                   </div>
                   <div style={{ marginBottom: 14 }}>
