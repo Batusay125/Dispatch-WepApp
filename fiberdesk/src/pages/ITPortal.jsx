@@ -306,7 +306,7 @@ export default function ITPortal({ user, onLogout }) {
                       placeholder="Additional config notes para sa tech..."
                     />
                   </div>
-                  <button style={{ ...s.actionBtn, background: "#2dcc7a" }} onClick={() => { (submitActivation); (submitPass); }} disabled={submitting} >
+                  <button style={{ ...s.actionBtn, background: "#2dcc7a" }} onClick={submitActivation}  disabled={submitting} >
                     {submitting ? "Submitting..." : "✅ Submit Activation Code"}
                   </button>
                 </div>
