@@ -66,20 +66,22 @@ export default function ITPortal({ user, onLogout }) {
       itBy: user.name,
       activatedAt: new Date().toISOString(),
     });
-    setSelected(null); setCode(""); setCodeNote(""); setSubmitting(false);
-    
-    if (!pass.trim()) { alert("Ilagay ang activation code"); return; }
+    setSelected(null); setCode(""); setCodeNote(""); setSubmitting(false);  
+  }
+  async function submitPass() {
+    if (!codePass.trim()) { alert("Ilagay ang activation password"); return; }
     if (!selected) return;
     setSubmitting(true);
     await update(ref(db, "jobs/" + selected), {
       status: "activated",
-      itPass: pass.trim(),
+      itPass: codePass.trim(),
       itNote: codeNote.trim(),
       itBy: user.name,
       activatedAt: new Date().toISOString(),
     });
-    setSelected(null); setPass(""); setCodePass(""); setSubmitting(false);    
+    setSelected(null); setCode(""); setCodeNote(""); setSubmitting(false);
   }
+
 
   async function markConfiguring(jobId) {
     await update(ref(db, "jobs/" + jobId), { status: "configuring", itBy: user.name });
@@ -304,7 +306,7 @@ export default function ITPortal({ user, onLogout }) {
                       placeholder="Additional config notes para sa tech..."
                     />
                   </div>
-                  <button style={{ ...s.actionBtn, background: "#2dcc7a" }} onClick={submitActivation} disabled={submitting}>
+                  <button style={{ ...s.actionBtn, background: "#2dcc7a" }} onClick={() => { (submitActivation); (submitPass); }} disabled={submitting} >
                     {submitting ? "Submitting..." : "✅ Submit Activation Code"}
                   </button>
                 </div>
