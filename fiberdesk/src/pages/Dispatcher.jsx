@@ -76,10 +76,24 @@ export default function Dispatcher({ user, onLogout }) {
   async function submitJob() {
     if (!form.client.trim()) { alert("Client name required"); return; }
     const techNames = form.techIds.map(id => techs[id]?.name || "").filter(n => n).join(", ");
-    const jo = "JO-" + Date.now().toString().slice(-6);
-    const data = { ...form, jo, techNames, status: form.techIds.length > 0 ? "dispatched" : "pending", createdAt: new Date().toISOString(), createdBy: user.name };
-    if (editJobId) await update(ref(db, "jobs/" + editJobId), data);
-    else await push(ref(db, "jobs"), data);
+    if (editJobId) {
+      // Editing existing job — preserve current status, only update info fields
+      const existing = jobs[editJobId];
+      const updates = {
+        ...form,
+        techNames,
+        updatedAt: new Date().toISOString(),
+        updatedBy: user.name,
+        // Preserve existing status — do NOT reset it
+        status: existing?.status,
+      };
+      await update(ref(db, "jobs/" + editJobId), updates);
+    } else {
+      // New job — set status based on tech assignment
+      const jo = "JO-" + Date.now().toString().slice(-6);
+      const data = { ...form, jo, techNames, status: form.techIds.length > 0 ? "dispatched" : "pending", createdAt: new Date().toISOString(), createdBy: user.name };
+      await push(ref(db, "jobs"), data);
+    }
     setShowModal(false); setEditJobId(null); setForm(emptyForm());
   }
 
