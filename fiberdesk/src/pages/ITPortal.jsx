@@ -66,19 +66,7 @@ export default function ITPortal({ user, onLogout }) {
       itBy: user.name,
       activatedAt: new Date().toISOString(),
     });
-    setSelected(null); setCode(""); setCodeNote(""); setSubmitting(false);
-
-    if (!pass.trim()) { alert("Ilagay ang activation password"); return; }
-    if (!selected) return;
-    setSubmitting(true);
-    await update(ref(db, "jobs/" + selected), {
-      status: "activated",
-      itPass: pass.trim(),
-      itNote: codeNote.trim(),
-      itBy: user.name,
-      activatedAt: new Date().toISOString(),
-    });
-    setSelected(null); setCode(""); setCodePass(""); setSubmitting(false);  
+    setSelected(null); setCode(""); setCodeNote(""); setSubmitting(false);  
   }
 
 
@@ -248,7 +236,6 @@ export default function ITPortal({ user, onLogout }) {
                   <div style={{ ...s.sectionTitle, color: "#2dcc7a" }}>✅ Activated</div>
                   <div style={s.infoGrid}>
                     <InfoRow label="Activation Code" value={selectedJob.itCode} color="#2dcc7a" mono big />
-                    <InfoRow label="Activation Password" value={selectedJob.itPass} color="#2dcc7a" mono big />
                     {selectedJob.itNote && <InfoRow label="IT Notes" value={selectedJob.itNote} />}
                     <InfoRow label="Activated by" value={selectedJob.itBy} />
                     <InfoRow label="Date" value={selectedJob.activatedAt ? new Date(selectedJob.activatedAt).toLocaleString("en-PH") : "—"} mono />
@@ -286,15 +273,6 @@ export default function ITPortal({ user, onLogout }) {
                       value={code}
                       onChange={e => setCode(e.target.value)}
                       placeholder="e.g. L1N1P1@1000123 USERNAME"
-                    />
-                  </div>
-                  <div style={{ marginBottom: 10 }}>
-                    <label style={s.lbl}>Activation Password / USERNAME</label>
-                    <input
-                      style={{ ...s.fi, fontSize: 15, fontFamily: "monospace", letterSpacing: 1, fontWeight: 700 }}
-                      value={pass}
-                      onChange={e => setPass(e.target.value)}
-                      placeholder="e.g. L1N1P1@1000123 PASSWORD"
                     />
                   </div>
                   <div style={{ marginBottom: 14 }}>
