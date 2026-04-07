@@ -342,7 +342,7 @@ export default function Dispatcher({ user, onLogout }) {
                           </td>
                           <td style={{ padding: "8px 10px" }} onClick={e => e.stopPropagation()}>
                             <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                              <button style={s.tdBtn} onClick={() => openEdit(id)}>Edit</button>
+                              {j.status !== "done" && (<button style={s.tdBtn} onClick={() => openEdit(id)}>Edit</button>)}
                               {j.status === "pending" && <button style={{ ...s.tdBtn, color: "#2dcc7a" }} onClick={() => updateStatus(id, "dispatched")}>Dispatch</button>}
                               {j.status !== "done" && <button style={{ ...s.tdBtn, color: "#2dcc7a" }} onClick={() => updateStatus(id, "done")}>Done ✓</button>}
                               <button style={{ ...s.tdBtn, color: "#ff7b7b" }} onClick={() => archiveJob(id)}>🗑️</button>
