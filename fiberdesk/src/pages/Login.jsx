@@ -141,7 +141,7 @@ export default function Login({ onLogin }) {
             <div style={s.secLabel}>Pumili ng iyong role</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <RoleCard
-                icon="🎧" title="Dispatcher / CSR"
+                icon="🎧" title="Dispatcher / Admin"
                 desc="Mag-create at mag-assign ng job orders"
                 color="#4d8ef5" bg="#0d1e42"
                 onClick={() => { setScreen("dispatcher"); setError(""); setName(""); setPassword(""); }}
