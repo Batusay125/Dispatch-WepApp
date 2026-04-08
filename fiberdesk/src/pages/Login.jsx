@@ -160,7 +160,7 @@ export default function Login({ onLogin }) {
               />
             </div>
           </div>
-          <div style={s.footer}>KeyConnect ISP · Marilao, Bulacan</div>
+          <div style={s.footer}>KeyConnect ISP · LAWA OFFICE</div>
         </div>
       </div>
     );
@@ -175,7 +175,7 @@ export default function Login({ onLogin }) {
           <button style={s.backBtn} onClick={goHome}>← Bumalik</button>
           <div style={s.roleHeader}>
             <div style={{ fontSize: 28, marginBottom: 6 }}>🎧</div>
-            <div style={s.roleTitle}>Dispatcher / CSR</div>
+            <div style={s.roleTitle}>Dispatcher / Admin</div>
             <div style={s.roleSub2}>Mag-login gamit ang iyong account</div>
           </div>
 
