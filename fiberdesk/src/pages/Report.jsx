@@ -1,7 +1,23 @@
 import { useState, useEffect } from "react";
 import { db } from "../firebase/config";
 import { ref, onValue } from "firebase/database";
-import * as XLSX from "xlsx";
+import * as XLSX from "xlsx-js-style";
+
+const headerStyle = {
+  font: { bold: true, color: { rgb: "FFFFFF" } },
+  fill: { fgColor: { rgb: "1A5A2A" } }, // green header
+  alignment: { horizontal: "center" }
+};
+
+const moneyStyle = {
+  numFmt: '"₱"#,##0.00',
+  font: { bold: true, color: { rgb: "2DCC7A" } }
+};
+
+const totalStyle = {
+  font: { bold: true, color: { rgb: "FFFFFF" } },
+  fill: { fgColor: { rgb: "4D8EF5" } } // blue total row
+};
 
 export default function Reports() {
   const [jobs, setJobs] = useState({});
@@ -56,6 +72,8 @@ export default function Reports() {
     const wb = XLSX.utils.book_new();
 
     // Sheet 1: Job Orders
+
+
     const jobRows = filtered.map(([id, j]) => ({
       "JO #": j.jo || id.slice(-6),
       "Date": j.date || "",
@@ -73,6 +91,31 @@ export default function Reports() {
       "Materials Total (₱)": j.materialsTotal || 0,
     }));
     const ws1 = XLSX.utils.json_to_sheet(jobRows);
+
+    const totalRow = jobRows.length + 1;
+
+    // TOTAL LABEL
+    ws1[`N${totalRow + 1}`] = { v: "TOTAL:", s: totalStyle };
+
+    // TOTAL FORMULA
+    ws1[`O${totalRow + 1}`] = {
+    f: `SUM(O2:O${totalRow})`,
+    s: totalStyle
+   };
+
+    // PESO FORMAT
+    for (let i = 2; i <= totalRow; i++) {
+     if (ws1[`O${i}`]) {
+      ws1[`O${i}`].z = '"₱"#,##0.00';
+    }
+  }
+    const range = XLSX.utils.decode_range(ws1['!ref']);
+
+    // Apply header style
+    for (let C = range.s.c; C <= range.e.c; ++C) {
+     const cell = ws1[XLSX.utils.encode_cell({ r: 0, c: C })];
+     if (cell) cell.s = headerStyle;
+    }
     ws1["!cols"] = [10,10,12,12,12,20,30,15,8,8,8,20,20,15].map(w => ({ wch: w }));
     XLSX.utils.book_append_sheet(wb, ws1, "Job Orders");
 
@@ -100,6 +143,25 @@ export default function Reports() {
       const ws2 = XLSX.utils.json_to_sheet(matRows);
       ws2["!cols"] = [10,10,12,20,18,25,8,8,12,12].map(w => ({ wch: w }));
       XLSX.utils.book_append_sheet(wb, ws2, "Materials Used");
+      
+      const range2 = XLSX.utils.decode_range(ws2['!ref']);
+
+      for (let C = range2.s.c; C <= range2.e.c; ++C) {
+        const cell = ws2[XLSX.utils.encode_cell({ r: 0, c: C })];
+        if (cell) cell.s = headerStyle;
+      }
+      const matTotal = matRows.length + 1;
+
+       ws2[`I${matTotal + 1}`] = { v: "TOTAL:", s: totalStyle };
+       ws2[`J${matTotal + 1}`] = {
+       f: `SUM(J2:J${matTotal})`,
+        s: totalStyle
+      };
+
+      for (let i = 2; i <= matTotal; i++) {
+       if (ws2[`I${i}`]) ws2[`I${i}`].z = '"₱"#,##0.00';
+       if (ws2[`J${i}`]) ws2[`J${i}`].z = '"₱"#,##0.00';
+      }
     }
 
     // Sheet 3: Summary by Site

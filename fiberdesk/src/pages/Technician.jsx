@@ -665,10 +665,26 @@ function TaskCard({ id, j, materials, usedItems, setUsedItems, totalCost, confir
     );
   } else if (j.status==="activated") {
     actions = <>
-      <div style={{background:"#081e13",border:"1px solid #1a5a2a",borderRadius:8,padding:"14px 16px"}}>
-        <div style={{fontSize:13,fontWeight:700,color:"#2dcc7a",marginBottom:8}}>✅ INTERNET ACTIVATED!</div>
-        {j.itCode && <><div style={{fontSize:10,color:"#7b87b8",marginBottom:4,textTransform:"uppercase"}}>Activation Code:</div><div style={{fontFamily:"monospace",fontSize:18,fontWeight:800,color:"#2dcc7a",letterSpacing:2}}>{j.itCode}</div></>}
-        {j.itNote && <div style={{fontSize:12,color:"#7b87b8",marginTop:6,background:"#111525",padding:"6px 10px",borderRadius:6}}>{j.itNote}</div>}
+      <div style={{background:"#081e13",border:"1.5px solid #1a5a2a",borderRadius:10,padding:"16px"}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#2dcc7a",marginBottom:14}}>✅ INTERNET ACTIVATED!</div>
+
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:9.5,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:"#7b87b8",marginBottom:6}}>USERNAME</div>
+          <div style={{background:"#0a1628",border:"1px solid #4d8ef5",borderRadius:8,padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+            <div style={{fontFamily:"monospace",fontSize:15,fontWeight:800,color:"#4d8ef5",letterSpacing:1,wordBreak:"break-all"}}>{j.itUsername||"—"}</div>
+          </div>
+        </div>
+
+        <div style={{marginBottom:4}}>
+          <div style={{fontSize:9.5,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:"#7b87b8",marginBottom:6}}>PASSWORD <span style={{color:"#3d4668",fontWeight:400,textTransform:"none"}}>(MAC Address)</span></div>
+          <div style={{background:"#160a28",border:"1px solid #9b78f5",borderRadius:8,padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+            <div style={{fontFamily:"monospace",fontSize:15,fontWeight:800,color:"#9b78f5",letterSpacing:2,wordBreak:"break-all"}}>{j.itPassword||j.macAddress||"—"}</div>
+          </div>
+        </div>
+
+        <div style={{background:"#0d1535",border:"1px solid #2a3a6a",borderRadius:8,padding:"10px 12px",marginTop:12,fontSize:12,color:"#7b87b8"}}>
+          💡 Ibigay ang <strong style={{color:"#dde3ff"}}>username at password</strong> na ito sa client para sa kanilang internet connection.
+        </div>
       </div>
       {j.materialsUsed && j.materialsUsed.length>0
         ? <button style={{...s.actBtn,background:"#2dcc7a"}} onClick={()=>updateStatus(id,"done")}>✅ &nbsp;Mark as Done</button>
