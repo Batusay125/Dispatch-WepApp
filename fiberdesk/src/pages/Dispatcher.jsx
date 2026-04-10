@@ -99,8 +99,12 @@ export default function Dispatcher({ user, onLogout }) {
 
   function openEdit(jobId) {
     const j = jobs[jobId];
-    setForm({ acct: j.acct || "", client: j.client || "", contact: j.contact || "", address: j.address || "", site: j.site || "Socorro", type: j.type || "install", priority: j.priority || "normal", lcp: j.lcp || "", nap: j.nap || "", port: j.port || "", notes: j.notes || "", date: j.date || "", techIds: j.techIds || [] });
+    setForm({ acct: j.acct || "", client: j.client || "", contact: j.contact || "", address: j.address || "", site: j.site || "Socorro", type: j.type || "install", priority: j.priority || "normal", lcp: j.lcp || "", nap: j.nap || "", port: j.port || "", notes: j.notes || "", date: j.date || "", techIds: j.techIds || [], plan: j.plan || "", referral: j.referral || "", installFee: j.installFee || "" });
     setEditJobId(jobId); setShowModal(true);
+  }
+  
+  function isDone(jobId) {
+    return jobs[jobId]?.status === "done" || jobs[jobId]?.status === "activated" || jobs[jobId]?.status === "cancelled";
   }
 
   async function updateStatus(jobId, status) {
@@ -532,24 +536,229 @@ export default function Dispatcher({ user, onLogout }) {
         <div style={s.modalOv} onClick={e => e.target === e.currentTarget && setShowModal(false)}>
           <div style={s.modal}>
             <div style={s.modalHd}>
-              <h3 style={{ fontSize: 15, fontWeight: 700, color: "#dde3ff" }}>{editJobId ? "Edit Job Order" : "New Job Order"}</h3>
+              {editJobId ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  <h3 style={{ fontSize: 15, fontWeight: 700, color: isDone(editJobId) ? "#2dcc7a" : "#dde3ff", margin: 0 }}>
+                    {isDone(editJobId) ? "✅ Job Completed" : "Job Order Details"}
+                  </h3>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <span style={{ fontFamily: "monospace", fontSize: 11, color: "#4d8ef5" }}>{jobs[editJobId]?.jo}</span>
+                    <span style={{ ...s.badge, background: STATUS_BG[jobs[editJobId]?.status], color: STATUS_COLORS[jobs[editJobId]?.status] }}>{jobs[editJobId]?.status?.toUpperCase()}</span>
+                    <span style={{ ...s.badge, background: TASK_BG[jobs[editJobId]?.type], color: TASK_COLORS[jobs[editJobId]?.type] }}>{jobs[editJobId]?.type?.toUpperCase()}</span>
+                  </div>
+                </div>
+              ) : (
+                <h3 style={{ fontSize: 15, fontWeight: 700, color: "#dde3ff" }}>New Job Order</h3>
+              )}
               <button style={s.mx} onClick={() => setShowModal(false)}>✕</button>
             </div>
-            <div style={s.modalBody}>
-              <div style={s.fsec}>Client Info</div>
-              <div style={s.f2}><FG label="Account #"><input style={s.fi} value={form.acct} onChange={e => setForm({...form, acct: e.target.value})} placeholder="ACC-0001" /></FG><FG label="Client Name *"><input style={s.fi} value={form.client} onChange={e => setForm({...form, client: e.target.value})} placeholder="Juan dela Cruz" /></FG></div>
-              <div style={s.f2}><FG label="Contact"><input style={s.fi} value={form.contact} onChange={e => setForm({...form, contact: e.target.value})} placeholder="639XXXXXXXXX" /></FG><FG label="Address"><input style={s.fi} value={form.address} onChange={e => setForm({...form, address: e.target.value})} placeholder="Blk 15 Lot 20 Cherry St." /></FG></div>
-              <div style={s.fsec}>Job Details</div>
-              <div style={s.f3}>
-                <FG label="Task Type"><select style={s.fi} value={form.type} onChange={e => setForm({...form, type: e.target.value})}><option value="install">INSTALL</option><option value="repair">REPAIR</option><option value="relocate">RELOCATE</option><option value="collection">COLLECTION</option></select></FG>
-                <FG label="Site"><select style={s.fi} value={form.site} onChange={e => setForm({...form, site: e.target.value})}>{SITES.map(s => <option key={s}>{s}</option>)}</select></FG>
-                <FG label="Priority"><select style={s.fi} value={form.priority} onChange={e => setForm({...form, priority: e.target.value})}><option value="normal">Normal</option><option value="urgent">🔴 Urgent</option></select></FG>
+
+            {editJobId ? (
+              isDone(editJobId) ? (
+                /* ── DONE / CANCELLED VIEW: Read-only completion summary ── */
+                <div style={s.modalBody}>
+                  {/* Completion banner */}
+                  <div style={{ background: jobs[editJobId]?.status === "cancelled" ? "#2a0a0a" : "#081e13", border: "1px solid", borderColor: jobs[editJobId]?.status === "cancelled" ? "#5a1a1a" : "#1a5a2a", borderRadius: 10, padding: "14px 16px", marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ fontSize: 28 }}>{jobs[editJobId]?.status === "cancelled" ? "✕" : "✅"}</div>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 15, color: jobs[editJobId]?.status === "cancelled" ? "#f05555" : "#2dcc7a" }}>
+                        {jobs[editJobId]?.status === "cancelled" ? "Job Cancelled" : "Job Completed!"}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#7b87b8", marginTop: 3 }}>
+                        {jobs[editJobId]?.status === "cancelled"
+                          ? `Cancelled by ${jobs[editJobId]?.cancelledBy || "—"} · ${jobs[editJobId]?.cancelledAt ? new Date(jobs[editJobId].cancelledAt).toLocaleString("en-PH") : ""}`
+                          : `Completed by ${jobs[editJobId]?.updatedBy || getCurrentTechNames(jobs[editJobId]?.techIds)} · ${jobs[editJobId]?.updatedAt ? new Date(jobs[editJobId].updatedAt).toLocaleString("en-PH") : ""}`
+                        }
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Cancel reason */}
+                  {jobs[editJobId]?.cancelReason && (
+                    <div style={{ background: "#2a0a0a", border: "1px solid #5a1a1a", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 13, color: "#f05555" }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", display: "block", marginBottom: 4 }}>Cancel Reason</span>
+                      {jobs[editJobId]?.cancelReason}
+                    </div>
+                  )}
+
+                  {/* Client info grid */}
+                  <div style={{ background: "#111525", border: "1px solid #222840", borderRadius: 10, padding: "14px 16px", marginBottom: 14 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#7b87b8", marginBottom: 12 }}>Client Info</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 20px" }}>
+                      <InfoBlock label="Client" value={form.client} bold />
+                      <InfoBlock label="Account #" value={form.acct} mono color="#4d8ef5" />
+                      <InfoBlock label="Contact" value={form.contact} mono />
+                      <InfoBlock label="Site" value={form.site} color="#9b78f5" />
+                      <InfoBlock label="Address" value={form.address} full />
+                      {(form.lcp || form.nap || form.port) && <InfoBlock label="LCP / NAP / PORT" value={`${form.lcp} / ${form.nap} / ${form.port}`} mono color="#20c8b0" full />}
+                      {form.plan && <InfoBlock label="Plan" value={form.plan} color="#20c8b0" />}
+                      {form.installFee && <InfoBlock label="Install Fee" value={"₱" + parseFloat(form.installFee).toLocaleString()} color="#2dcc7a" bold />}
+                      {form.referral && <InfoBlock label="Referral" value={form.referral} />}
+                      {form.notes && <InfoBlock label="Notes" value={form.notes} color="#f0a030" full />}
+                      <InfoBlock label="Date" value={form.date} mono />
+                      <InfoBlock label="Technician" value={getCurrentTechNames(jobs[editJobId]?.techIds)} />
+                    </div>
+                  </div>
+
+                  {/* Materials used */}
+                  {jobs[editJobId]?.materialsUsed?.length > 0 && (
+                    <div style={{ background: "#111525", border: "1px solid #222840", borderRadius: 10, padding: "14px 16px", marginBottom: 14 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#7b87b8", marginBottom: 10 }}>Materials Used</div>
+                      {jobs[editJobId].materialsUsed.map((m, i) => (
+                        <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: i < jobs[editJobId].materialsUsed.length - 1 ? "1px solid #222840" : "none" }}>
+                          <span style={{ fontSize: 13, color: "#dde3ff" }}>{m.name} <span style={{ color: "#7b87b8" }}>x{m.qty}</span></span>
+                          <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: "#2dcc7a" }}>₱{(m.price * m.qty).toLocaleString()}</span>
+                        </div>
+                      ))}
+                      <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 10, marginTop: 6, borderTop: "1px solid #2dcc7a" }}>
+                        <span style={{ fontWeight: 700, color: "#2dcc7a" }}>TOTAL</span>
+                        <span style={{ fontFamily: "monospace", fontSize: 15, fontWeight: 800, color: "#2dcc7a" }}>₱{(jobs[editJobId]?.materialsTotal || 0).toLocaleString()}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Internet credentials (install jobs) */}
+                  {jobs[editJobId]?.itUsername && (
+                    <div style={{ background: "#0d1535", border: "1px solid #4d8ef5", borderRadius: 10, padding: "14px 16px" }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#4d8ef5", marginBottom: 12 }}>Internet Credentials</div>
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 9.5, color: "#7b87b8", marginBottom: 4, textTransform: "uppercase", fontWeight: 700 }}>Username</div>
+                        <div style={{ fontFamily: "monospace", fontSize: 14, fontWeight: 700, color: "#4d8ef5", wordBreak: "break-all" }}>{jobs[editJobId]?.itUsername}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 9.5, color: "#7b87b8", marginBottom: 4, textTransform: "uppercase", fontWeight: 700 }}>Password (MAC)</div>
+                        <div style={{ fontFamily: "monospace", fontSize: 14, fontWeight: 700, color: "#9b78f5", wordBreak: "break-all" }}>{jobs[editJobId]?.itPassword || jobs[editJobId]?.macAddress}</div>
+                      </div>
+                      <div style={{ fontSize: 11, color: "#7b87b8", marginTop: 10 }}>Activated by {jobs[editJobId]?.itBy} · {jobs[editJobId]?.activatedAt ? new Date(jobs[editJobId].activatedAt).toLocaleString("en-PH") : ""}</div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+              /* ── EDIT MODE: View job details + edit fields ── */
+              <div style={s.modalBody}>
+                {/* Read-only info strip */}
+                <div style={{ background: "#111525", border: "1px solid #222840", borderRadius: 10, padding: "12px 14px", marginBottom: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 16px" }}>
+                  <div><span style={{ fontSize: 9.5, color: "#7b87b8", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em" }}>Client</span><div style={{ fontSize: 13, fontWeight: 700, color: "#dde3ff", marginTop: 2 }}>{form.client || "—"}</div></div>
+                  <div><span style={{ fontSize: 9.5, color: "#7b87b8", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em" }}>Account #</span><div style={{ fontSize: 13, fontFamily: "monospace", color: "#4d8ef5", marginTop: 2 }}>{form.acct || "—"}</div></div>
+                  <div><span style={{ fontSize: 9.5, color: "#7b87b8", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em" }}>Contact</span><div style={{ fontSize: 12, color: "#dde3ff", marginTop: 2 }}>{form.contact || "—"}</div></div>
+                  <div><span style={{ fontSize: 9.5, color: "#7b87b8", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em" }}>Site</span><div style={{ fontSize: 12, fontWeight: 600, color: "#9b78f5", marginTop: 2 }}>{form.site || "—"}</div></div>
+                  <div style={{ gridColumn: "1 / -1" }}><span style={{ fontSize: 9.5, color: "#7b87b8", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em" }}>Address</span><div style={{ fontSize: 12, color: "#dde3ff", marginTop: 2 }}>{form.address || "—"}</div></div>
+                  {(form.lcp || form.nap || form.port) && (
+                    <div style={{ gridColumn: "1 / -1" }}><span style={{ fontSize: 9.5, color: "#7b87b8", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em" }}>LCP / NAP / PORT</span><div style={{ fontSize: 12, fontFamily: "monospace", color: "#20c8b0", marginTop: 2 }}>{form.lcp} {form.nap} {form.port}</div></div>
+                  )}
+                  {form.notes && (
+                    <div style={{ gridColumn: "1 / -1" }}><span style={{ fontSize: 9.5, color: "#7b87b8", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em" }}>Notes</span><div style={{ fontSize: 12, color: "#f0a030", marginTop: 2 }}>{form.notes}</div></div>
+                  )}
+                  {form.installFee && (
+                    <div><span style={{ fontSize: 9.5, color: "#7b87b8", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em" }}>Installation Fee</span><div style={{ fontSize: 13, fontWeight: 700, color: "#2dcc7a", marginTop: 2 }}>₱{parseFloat(form.installFee).toLocaleString()}</div></div>
+                  )}
+                  <div><span style={{ fontSize: 9.5, color: "#7b87b8", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em" }}>Scheduled</span><div style={{ fontSize: 12, fontFamily: "monospace", color: "#dde3ff", marginTop: 2 }}>{form.date || "—"}</div></div>
+                </div>
+
+                <div style={s.fsec}>Update Job</div>
+
+                <div style={s.f2}>
+                  <FG label="Priority">
+                    <select style={s.fi} value={form.priority} onChange={e => setForm({...form, priority: e.target.value})}>
+                      <option value="normal">Normal</option>
+                      <option value="urgent">🔴 Urgent</option>
+                    </select>
+                  </FG>
+                  <FG label="Scheduled Date">
+                    <input style={s.fi} type="date" value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
+                  </FG>
+                </div>
+
+                <div style={s.f3}>
+                  <FG label="LCP"><input style={s.fi} type="number" value={form.lcp.replace(/^L/i,"")} onChange={e => setForm({...form, lcp: e.target.value ? "L"+e.target.value : ""})} placeholder="1" /></FG>
+                  <FG label="NAP"><input style={s.fi} type="number" value={form.nap.replace(/^N/i,"")} onChange={e => setForm({...form, nap: e.target.value ? "N"+e.target.value : ""})} placeholder="1" /></FG>
+                  <FG label="PORT"><input style={s.fi} type="number" value={form.port.replace(/^P/i,"")} onChange={e => setForm({...form, port: e.target.value ? "P"+e.target.value : ""})} placeholder="1" /></FG>
+                </div>
+
+                {form.type === "install" && (
+                  <FG label="Installation Fee (₱)">
+                    <input style={s.fi} type="number" value={form.installFee} onChange={e => setForm({...form, installFee: e.target.value})} placeholder="0.00" min="0" step="0.01" />
+                  </FG>
+                )}
+
+                <FG label="Notes / Issue">
+                  <input style={s.fi} value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} placeholder="LOS / NO NET / FOR RELOCATION..." />
+                </FG>
+
+                <FG label="Assign Technicians">
+                  <div style={{background:"#111525",border:"1px solid #222840",borderRadius:8,padding:"8px 11px",maxHeight:120,overflowY:"auto"}}>
+                    {Object.entries(techs).map(([id,t])=>(
+                      <label key={id} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:12,color:"#dde3ff",marginBottom:4}}>
+                        <input type="checkbox" checked={form.techIds.includes(id)} onChange={e=>{const ids=e.target.checked?[...form.techIds,id]:form.techIds.filter(x=>x!==id);setForm({...form,techIds:ids})}} style={{margin:0}} />
+                        {t.name}
+                      </label>
+                    ))}
+                  </div>
+                </FG>
+
+                <div style={s.fsec}>Update Status</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {[["pending","Pending","#f05555"],["dispatched","Dispatched","#4d8ef5"],["on-way","On the Way","#9b78f5"],["on-site","On-Site","#20c8b0"],["done","Done ✓","#2dcc7a"]].map(([st, lbl, col]) => (
+                    <button key={st} style={{ ...s.ftab, ...(jobs[editJobId]?.status === st ? { background: col + "22", borderColor: col, color: col, fontWeight: 700 } : {}) }} onClick={() => updateStatus(editJobId, st)}>{lbl}</button>
+                  ))}
+                </div>
               </div>
-              <div style={s.f3}><FG label="LCP"><input style={s.fi} value={form.lcp} onChange={e => setForm({...form, lcp: e.target.value})} placeholder="L1" /></FG><FG label="NAP"><input style={s.fi} value={form.nap} onChange={e => setForm({...form, nap: e.target.value})} placeholder="N2" /></FG><FG label="PORT"><input style={s.fi} value={form.port} onChange={e => setForm({...form, port: e.target.value})} placeholder="P14" /></FG></div>
-              <FG label="Notes / Issue"><input style={s.fi} value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} placeholder="LOS / NO NET / FOR RELOCATION..." /></FG>
-              <div style={s.f2}><FG label="Scheduled Date"><input style={s.fi} type="date" value={form.date} onChange={e => setForm({...form, date: e.target.value})} /></FG><FG label="Assign Technicians (1-3)"><div style={{background:"#111525",border:"1px solid #222840",borderRadius:8,padding:"8px 11px",maxHeight:120,overflowY:"auto"}}>{Object.entries(techs).map(([id,t])=><label key={id} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:12,color:"#dde3ff",marginBottom:4}}><input type="checkbox" checked={form.techIds.includes(id)} onChange={e=>{const ids=e.target.checked?[...form.techIds,id]:form.techIds.filter(x=>x!==id);setForm({...form,techIds:ids})}} style={{margin:0}} />{t.name}</label>)}</div></FG></div>
+              )
+            ) : (
+              /* ── ADD MODE: Full creation form ── */
+              <div style={s.modalBody}>
+                <div style={s.fsec}>Client Info</div>
+                <div style={s.f2}>
+                  <FG label="Account #"><input style={s.fi} value={form.acct} onChange={e => setForm({...form, acct: e.target.value})} placeholder="ACC-0001" /></FG>
+                  <FG label="Client Name *"><input style={s.fi} value={form.client} onChange={e => setForm({...form, client: e.target.value})} placeholder="Juan dela Cruz" /></FG>
+                </div>
+                <div style={s.f2}>
+                  <FG label="Contact"><input style={s.fi} value={form.contact} onChange={e => setForm({...form, contact: e.target.value})} placeholder="639XXXXXXXXX" /></FG>
+                  <FG label="Address"><input style={s.fi} value={form.address} onChange={e => setForm({...form, address: e.target.value})} placeholder="Blk 15 Lot 20 Cherry St." /></FG>
+                </div>
+                <div style={s.fsec}>Job Details</div>
+                <div style={s.f3}>
+                  <FG label="Task Type"><select style={s.fi} value={form.type} onChange={e => setForm({...form, type: e.target.value})}><option value="install">INSTALL</option><option value="repair">REPAIR</option><option value="relocate">RELOCATE</option><option value="collection">COLLECTION</option></select></FG>
+                  <FG label="Site"><select style={s.fi} value={form.site} onChange={e => setForm({...form, site: e.target.value})}>{SITES.map(s => <option key={s}>{s}</option>)}</select></FG>
+                  <FG label="Priority"><select style={s.fi} value={form.priority} onChange={e => setForm({...form, priority: e.target.value})}><option value="normal">Normal</option><option value="urgent">🔴 Urgent</option></select></FG>
+                </div>
+                <div style={s.f3}>
+                  <FG label="LCP"><input style={s.fi} type="number" value={form.lcp.replace(/^L/i,"")} onChange={e => setForm({...form, lcp: e.target.value ? "L"+e.target.value : ""})} placeholder="1" /></FG>
+                  <FG label="NAP"><input style={s.fi} type="number" value={form.nap.replace(/^N/i,"")} onChange={e => setForm({...form, nap: e.target.value ? "N"+e.target.value : ""})} placeholder="1" /></FG>
+                  <FG label="PORT"><input style={s.fi} type="number" value={form.port.replace(/^P/i,"")} onChange={e => setForm({...form, port: e.target.value ? "P"+e.target.value : ""})} placeholder="1" /></FG>
+                </div>
+                {form.type === "install" && (
+                  <FG label="Installation Fee (₱)">
+                    <input style={s.fi} type="number" value={form.installFee} onChange={e => setForm({...form, installFee: e.target.value})} placeholder="0.00" min="0" step="0.01" />
+                  </FG>
+                )}
+                <FG label="Notes / Issue"><input style={s.fi} value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} placeholder="LOS / NO NET / FOR RELOCATION..." /></FG>
+                <div style={s.f2}>
+                  <FG label="Scheduled Date"><input style={s.fi} type="date" value={form.date} onChange={e => setForm({...form, date: e.target.value})} /></FG>
+                  <FG label="Assign Technicians (1-3)">
+                    <div style={{background:"#111525",border:"1px solid #222840",borderRadius:8,padding:"8px 11px",maxHeight:120,overflowY:"auto"}}>
+                      {Object.entries(techs).map(([id,t])=>(
+                        <label key={id} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:12,color:"#dde3ff",marginBottom:4}}>
+                          <input type="checkbox" checked={form.techIds.includes(id)} onChange={e=>{const ids=e.target.checked?[...form.techIds,id]:form.techIds.filter(x=>x!==id);setForm({...form,techIds:ids})}} style={{margin:0}} />
+                          {t.name}
+                        </label>
+                      ))}
+                    </div>
+                  </FG>
+                </div>
+              </div>
+            )}
+
+            <div style={s.modalFt}>
+              <button style={s.btnGhost} onClick={() => { setShowModal(false); setEditJobId(null); setForm(emptyForm()); }}>
+                {editJobId ? "Close" : "Cancel"}
+              </button>
+              {(!editJobId || !isDone(editJobId)) && (
+                <button style={s.btnPrimary} onClick={submitJob}>
+                  {editJobId ? "Update Job" : "Create Job Order"}
+                </button>
+              )}
             </div>
-            <div style={s.modalFt}><button style={s.btnGhost} onClick={() => setShowModal(false)}>Cancel</button><button style={s.btnPrimary} onClick={submitJob}>Save Job Order</button></div>
           </div>
         </div>
       )}
@@ -601,6 +810,15 @@ export default function Dispatcher({ user, onLogout }) {
 
 function FG({ label, children }) {
   return <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 12 }}><label style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", color: "#7b87b8" }}>{label}</label>{children}</div>;
+}
+
+function InfoBlock({ label, value, mono, bold, color, full }) {
+  return (
+    <div style={{ gridColumn: full ? "1 / -1" : "auto" }}>
+      <div style={{ fontSize: 9.5, color: "#7b87b8", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 3 }}>{label}</div>
+      <div style={{ fontSize: 13, fontFamily: mono ? "monospace" : "inherit", color: color || "#dde3ff", fontWeight: bold ? 700 : 400 }}>{value || "—"}</div>
+    </div>
+  );
 }
 
 const s = {
