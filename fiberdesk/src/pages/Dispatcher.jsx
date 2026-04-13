@@ -4,6 +4,7 @@ import { ref, onValue, push, set, update, remove } from "firebase/database";
 import { SITES, TASK_COLORS, TASK_BG, STATUS_COLORS, STATUS_BG } from "../constants.jsx";
 import Reports from "./Report";
 import Materials from "./Material";
+import KPI from "./KPI";
 
 export default function Dispatcher({ user, onLogout }) {
   const [page, setPage] = useState("dashboard");
@@ -23,6 +24,7 @@ export default function Dispatcher({ user, onLogout }) {
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [siteFilter, setSiteFilter] = useState("all");
+  const [specificDate, setSpecificDate] = useState(new Date().toISOString().split("T")[0]);
   const [isMobile, setIsMobile] = useState(false);
 
   function emptyForm() {
@@ -57,7 +59,8 @@ export default function Dispatcher({ user, onLogout }) {
     const df = dateFilter === "all" ||
       (dateFilter === "today" && j.date === today) ||
       (dateFilter === "this-week" && j.date >= weekStart) ||
-      (dateFilter === "this-month" && j.date >= monthStart);
+      (dateFilter === "this-month" && j.date >= monthStart) ||
+      (dateFilter === "specific" && j.date === specificDate);
     const sf = statusFilter === "all" || j.status === statusFilter;
     const tf = typeFilter === "all" || j.type === typeFilter;
     const sif = siteFilter === "all" || j.site === siteFilter;
@@ -167,11 +170,12 @@ export default function Dispatcher({ user, onLogout }) {
     ["dispatch", "📡", "Dispatch", counts.pending > 0 ? counts.pending : null],
     ["technicians", "🔧", "Technicians", null],
     ["reports", "◫", "Reports", null],
+    ["kpi", "📈", "KPI Reports", null],
     ["materials", "🗃", "Materials", null],
     ["trash", "🗑️", "Trash", deletedList.length > 0 ? deletedList.length : null],
   ];
 
-  const pageLabels = { dashboard: "Dashboard", jobs: "Job Orders", pipeline: "Pipeline", dispatch: "Dispatch Board", technicians: "Technicians", reports: "Reports", materials: "Materials", trash: "Trash" };
+  const pageLabels = { dashboard: "Dashboard", jobs: "Job Orders", pipeline: "Pipeline", dispatch: "Dispatch Board", technicians: "Technicians", reports: "Reports", kpi: "KPI Reports", materials: "Materials", trash: "Trash" };
 
   return (
     <div style={s.app}>
@@ -210,9 +214,10 @@ export default function Dispatcher({ user, onLogout }) {
               </div>
             ))}
             <div style={{ padding: "12px 14px 4px", fontSize: 9, fontWeight: 700, letterSpacing: ".14em", color: "#3d4668", textTransform: "uppercase" }}>Admin</div>
-            {navPages.slice(5).map(([key, ic, lbl]) => (
+            {navPages.slice(5).map(([key, ic, lbl, badge]) => (
               <div key={key} style={{ ...s.navItem, ...(page === key ? s.navActive : {}) }} onClick={() => { setPage(key); if (isMobile) setSidebarOpen(false); }}>
                 <span style={{ fontSize: 13, width: 16, textAlign: "center" }}>{ic}</span>{lbl}
+                {badge && <span style={s.navBadge}>{badge}</span>}
               </div>
             ))}
           </nav>
@@ -294,7 +299,7 @@ export default function Dispatcher({ user, onLogout }) {
                   <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
                     <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
                       <span style={{ fontSize: 10, color: "#7b87b8", minWidth: 40 }}>Status:</span>
-                      {[["all","All"],["pending","Pending"],["dispatched","Dispatched"],["on-way","On the Way"],["on-site","On-Site"],["done","Done"]].map(([k, lbl]) => (
+                      {[["all","All"],["pending","Pending"],["dispatched","Dispatched"],["on-way","On the Way"],["on-site","On-Site"],["done","Done"],["cancelled","Cancelled"]].map(([k, lbl]) => (
                         <button key={k} style={{ ...s.ftab, ...(statusFilter === k ? s.ftabActive : {}) }} onClick={() => setStatusFilter(k)}>{lbl}</button>
                       ))}
                     </div>
@@ -313,9 +318,13 @@ export default function Dispatcher({ user, onLogout }) {
                     </div>
                     <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
                       <span style={{ fontSize: 10, color: "#7b87b8", minWidth: 40 }}>Date:</span>
-                      {[["all","All Dates"],["today","Today"],["this-week","This Week"],["this-month","This Month"]].map(([k, lbl]) => (
+                      {[["all","All Dates"],["today","Today"],["this-week","This Week"],["this-month","This Month"],["specific","Specific Date"]].map(([k, lbl]) => (
                         <button key={k} style={{ ...s.ftab, ...(dateFilter === k ? s.ftabActive : {}) }} onClick={() => setDateFilter(k)}>{lbl}</button>
                       ))}
+                      {dateFilter === "specific" && (
+                        <input type="date" value={specificDate} onChange={e => setSpecificDate(e.target.value)}
+                          style={{ background:"#111525", border:"1px solid #4d8ef5", color:"#dde3ff", padding:"4px 10px", borderRadius:5, fontFamily:"inherit", fontSize:11, outline:"none" }} />
+                      )}
                     </div>
                   </div>
                   <input style={s.searchInput} placeholder="Client / JO / Site..." value={search} onChange={e => setSearch(e.target.value)} />
@@ -496,6 +505,13 @@ export default function Dispatcher({ user, onLogout }) {
             <div>
               <div style={s.ph}><h1 style={s.h1}>Reports</h1></div>
               <Reports />
+            </div>
+          )}
+
+          {/* KPI REPORTS */}
+          {page === "kpi" && (
+            <div>
+              <KPI />
             </div>
           )}
 
