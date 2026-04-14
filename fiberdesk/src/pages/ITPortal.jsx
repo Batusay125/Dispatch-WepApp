@@ -29,7 +29,10 @@ export default function ITPortal({ user, onLogout }) {
   const [selected, setSelected] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState("");
-  const [copied, setCopied] = useState(""); // which field was copied
+
+  const [copied, setCopied] = useState("");
+  const [editUser, setEditUser] = useState("");
+  const [editPass, setEditPass] = useState("");// which field was copied
 
   useEffect(() => {
     return onValue(ref(db, "jobs"), snap => {
@@ -57,26 +60,37 @@ export default function ITPortal({ user, onLogout }) {
     await update(ref(db, "jobs/" + jobId), {
       status: "configuring",
       itBy: user.name,
-      itUsername: generateUsername(jobs[jobId], jobId),
-      itPassword: jobs[jobId]?.macAddress || "",
+      itUsername: editUser || generateUsername(jobs[jobId], jobId),
+      itPassword: editPass || jobs[jobId]?.macAddress || "",
       updatedAt: new Date().toISOString(),
     });
   }
 
-  async function submitActivation() {
-    if (!selected) return;
-    setSubmitting(true);
-    const username = generateUsername(selectedJob, selected);
-    const password = selectedJob?.macAddress || "";
-    await update(ref(db, "jobs/" + selected), {
-      status: "activated",
-      itUsername: username,
-      itPassword: password,
-      itBy: user.name,
-      activatedAt: new Date().toISOString(),
-    });
-    setSubmitting(false);
+async function submitActivation() {
+  if (!selected) return;
+
+  if (!editUser.trim()) {
+    alert("Ilagay ang Username");
+    return;
   }
+
+  if (!editPass.trim()) {
+    alert("Ilagay ang Password");
+    return;
+  }
+
+  setSubmitting(true);
+
+  await update(ref(db, "jobs/" + selected), {
+    status: "activated",
+    itUsername: editUser.trim(),
+    itPassword: editPass.trim(),
+    itBy: user.name,
+    activatedAt: new Date().toISOString(),
+  });
+
+  setSubmitting(false);
+}
 
   function copyToClipboard(text, label) {
     navigator.clipboard.writeText(text).then(() => {
@@ -134,7 +148,12 @@ export default function ITPortal({ user, onLogout }) {
               return (
                 <div key={id}
                   style={{ ...s.jobItem, ...(isSelected ? s.jobItemActive : {}), ...(j.status === "for-approval" ? { borderLeft: "3px solid #f0a030" } : {}) }}
-                  onClick={() => setSelected(id)}
+                  onClick={() => {
+                    setSelected(id);
+                    setEditUser(generateUsername(j, id));
+                    setEditPass(j.macAddress || "");
+                    setCopied("");
+                  }}
                 >
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
                     <span style={{ fontFamily: "monospace", fontSize: 10, color: "#7b87b8" }}>{j.jo}</span>
@@ -231,41 +250,115 @@ export default function ITPortal({ user, onLogout }) {
               {selectedJob.macAddress && (selectedJob.status === "for-approval" || selectedJob.status === "configuring" || selectedJob.status === "activated") && (
                 <Section title="🔐 Internet Credentials (Ibibigay sa Tech)">
 
-                  {/* USERNAME */}
-                  <div style={{ marginBottom: 14 }}>
-                    <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", color: "#7b87b8", marginBottom: 6 }}>
-                      USERNAME <span style={{ color: "#3d4668", fontWeight: 400 }}>· auto-generated mula sa LCP+NAP+PORT+@1000+ID</span>
-                    </div>
-                    <div style={{ background: "#111525", border: "1.5px solid #4d8ef5", borderRadius: 10, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                      <div style={{ fontFamily: "monospace", fontSize: 18, fontWeight: 800, color: "#4d8ef5", letterSpacing: 1, wordBreak: "break-all" }}>
-                        {generatedUsername}
-                      </div>
-                      <button style={s.copyBtn} onClick={() => copyToClipboard(generatedUsername, "username")}>
-                        {copied === "username" ? "✓ Copied!" : "Copy"}
-                      </button>
-                    </div>
-                    <div style={{ fontSize: 10.5, color: "#7b87b8", marginTop: 5, fontFamily: "monospace" }}>
-                      = {selectedJob.lcp}{selectedJob.nap}{selectedJob.port} + @1000 + {selected?.slice(-6).toUpperCase()}
-                    </div>
-                  </div>
+ {/* EDITABLE USERNAME */}
+<div style = {{ marginBottom: 14 }}>
+<div style = {{ fontSize: 10, fontWeight: 700, color: "#7b87b8", marginBottom: 6 }}>
+    USERNAME (Editable)
+  </div>
 
-                  {/* PASSWORD = MAC ADDRESS */}
-                  <div style={{ marginBottom: 16 }}>
-                    <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", color: "#7b87b8", marginBottom: 6 }}>
-                      PASSWORD <span style={{ color: "#3d4668", fontWeight: 400 }}>· MAC Address ng modem</span>
-                    </div>
-                    <div style={{ background: "#111525", border: "1.5px solid #9b78f5", borderRadius: 10, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                      <div style={{ fontFamily: "monospace", fontSize: 18, fontWeight: 800, color: "#9b78f5", letterSpacing: 2, wordBreak: "break-all" }}>
-                        {generatedPassword}
-                      </div>
-                      <button style={{ ...s.copyBtn, borderColor: "#9b78f5", color: "#9b78f5" }} onClick={() => copyToClipboard(generatedPassword, "password")}>
-                        {copied === "password" ? "✓ Copied!" : "Copy"}
-                      </button>
-                    </div>
-                    <div style={{ fontSize: 10.5, color: "#7b87b8", marginTop: 5 }}>
-                      Ito ang MAC Address na ibinigay ng tech — gamitin bilang password sa modem configuration.
-                    </div>
-                  </div>
+  <div style = {{ display: "flex", gap: 8 }}>
+    <input
+      value    = {editUser}
+      onChange = {e => setEditUser(e.target.value)}
+      style    = {{
+        flex        : 1,
+        padding     : "12px",
+        background  : "#111525",
+        border      : "1px solid #4d8ef5",
+        color       : "#4d8ef5",
+        borderRadius: 8,
+        fontFamily  : "monospace"
+      }}
+    />
+
+    <button onClick = {() => copyToClipboard(editUser, "username")}>
+      Copy
+    </button>
+  </div>
+</div>
+
+{/* EDITABLE PASSWORD */}
+<div style = {{ marginBottom: 14 }}>
+<div style = {{ fontSize: 10, fontWeight: 700, color: "#7b87b8", marginBottom: 6 }}>
+    PASSWORD (Editable)
+  </div>
+
+  <div style = {{ display: "flex", gap: 8 }}>
+    <input
+      value    = {editPass}
+      onChange = {e => setEditPass(e.target.value)}
+      style    = {{
+        flex        : 1,
+        padding     : "12px",
+        background  : "#111525",
+        border      : "1px solid #9b78f5",
+        color       : "#9b78f5",
+        borderRadius: 8,
+        fontFamily  : "monospace"
+      }}
+    />
+
+    <button onClick = {() => copyToClipboard(editPass, "password")}>
+      Copy
+    </button>
+  </div>
+</div>
+
+{/* SUMMARY BOX — FINAL FIX */}
+<div
+  style={{
+    background: "#0d1535",
+    border: "2px solid #4d8ef5",
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 12
+  }}
+>
+  <div
+    style={{
+      color: "#4d8ef5",
+      fontWeight: 800,
+      marginBottom: 12
+    }}
+  >
+    📤 Credentials for Technician
+  </div>
+
+  <div style={{ marginBottom: 8 }}>
+    <div style={{ fontSize: 12, color: "#7b87b8" }}>Username</div>
+    <div style={{ color: "#4d8ef5", fontFamily: "monospace" }}>
+      {editUser || "—"}
+    </div>
+  </div>
+
+  <div style={{ marginBottom: 12 }}>
+    <div style={{ fontSize: 12, color: "#7b87b8" }}>Password</div>
+    <div style={{ color: "#9b78f5", fontFamily: "monospace" }}>
+      {editPass || "—"}
+    </div>
+  </div>
+
+  <button
+    onClick={() => {
+      copyToClipboard(
+        `Username: ${editUser}\nPassword: ${editPass}`,
+        "both"
+      );
+    }}
+    style={{
+      width: "100%",
+      padding: 12,
+      background: "#1a2a50",
+      border: "2px solid #4d8ef5",
+      color: "#4d8ef5",
+      borderRadius: 10,
+      cursor: "pointer",
+      fontWeight: 700
+    }}
+  >
+    {copied === "both" ? "✓ Copied!" : "📋 Copy Username + Password"}
+  </button>
+</div>
 
                   {/* SUMMARY BOX — para ibigay sa tech */}
                   <div style={{ background: "#0d1535", border: "1px solid #4d8ef5", borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
