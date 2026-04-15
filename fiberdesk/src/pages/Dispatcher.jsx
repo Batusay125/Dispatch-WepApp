@@ -5,6 +5,7 @@ import { SITES, TASK_COLORS, TASK_BG, STATUS_COLORS, STATUS_BG } from "../consta
 import Reports from "./Report";
 import Materials from "./Material";
 import KPI from "./KPI";
+import Attendance from "./Attendance";
 
 export default function Dispatcher({ user, onLogout }) {
   const [page, setPage] = useState("dashboard");
@@ -171,11 +172,12 @@ export default function Dispatcher({ user, onLogout }) {
     ["technicians", "🔧", "Technicians", null],
     ["reports", "◫", "Reports", null],
     ["kpi", "📈", "KPI Reports", null],
+    ["attendance", "🗂", "Attendance", null],
     ["materials", "🗃", "Materials", null],
     ["trash", "🗑️", "Trash", deletedList.length > 0 ? deletedList.length : null],
   ];
 
-  const pageLabels = { dashboard: "Dashboard", jobs: "Job Orders", pipeline: "Pipeline", dispatch: "Dispatch Board", technicians: "Technicians", reports: "Reports", kpi: "KPI Reports", materials: "Materials", trash: "Trash" };
+  const pageLabels = { dashboard: "Dashboard", jobs: "Job Orders", pipeline: "Pipeline", dispatch: "Dispatch Board", technicians: "Technicians", reports: "Reports", kpi: "KPI Reports", attendance: "Attendance", materials: "Materials", trash: "Trash" };
 
   return (
     <div style={s.app}>
@@ -513,6 +515,11 @@ export default function Dispatcher({ user, onLogout }) {
             <div>
               <KPI />
             </div>
+          )}
+
+          {/* ATTENDANCE */}
+          {page === "attendance" && (
+            <div><Attendance /></div>
           )}
 
           {/* MATERIALS */}
