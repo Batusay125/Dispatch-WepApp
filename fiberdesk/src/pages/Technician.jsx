@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { db } from "../firebase/config";
-import { ref, onValue, update } from "firebase/database";
+import { ref, onValue, update, set, get } from "firebase/database";
+import Calendar from "./Calendar";
 
-const TASK_COLORS = { install:"#4dff88", repair:"#ff8c3d", relocate:"#7db8ff", collection:"#ffc04d" };
-const TASK_BG = { install:"#0d2a0d", repair:"#2a1005", relocate:"#0d1530", collection:"#2a1800" };
+const TASK_COLORS = { install:"#4dff88", repair:"#ff8c3d", relocate:"#7db8ff", collection:"#ffc04d", mainline:"#ff5fa0", pullout:"#c084fc" };
+const TASK_BG = { install:"#0d2a0d", repair:"#2a1005", relocate:"#0d1530", collection:"#2a1800", mainline:"#2a0a18", pullout:"#1e0a30" };
 const STATUS_COLOR = { pending:"#f0a030", dispatched:"#4d8ef5", "on-way":"#9b78f5", "on-site":"#20c8b0", "for-approval":"#f0a030", configuring:"#4d8ef5", activated:"#2dcc7a", done:"#2dcc7a", cancelled:"#f05555" };
 const STATUS_BG = { pending:"#2a1805", dispatched:"#0d1535", "on-way":"#1a1040", "on-site":"#052220", "for-approval":"#2a1a05", configuring:"#0d1535", activated:"#081e13", done:"#081e13", cancelled:"#2a0a0a" };
 const STATUS_LABEL = { pending:"PENDING", dispatched:"DISPATCHED", "on-way":"ON THE WAY", "on-site":"ON-SITE", "for-approval":"FOR IT", configuring:"CONFIGURING", activated:"ACTIVATED", done:"DONE", cancelled:"CANCELLED" };
@@ -27,12 +28,24 @@ export default function Technician({ user, onLogout }) {
   });
   const [cancelJobId, setCancelJobId] = useState(null);
   const [cancelReason, setCancelReason] = useState("");
+  const [collectionJobId, setCollectionJobId] = useState(null);
+  const [collectionForm,  setCollectionForm]  = useState({ amountCollected:"", collectionNote:"", receipt:"" });
+  const [pulloutJobId,    setPulloutJobId]    = useState(null);
+  const [pulloutForm,     setPulloutForm]     = useState({ modemRetrieved:false, adaptorRetrieved:false, otherItems:"", pulloutNote:"" });
+  const [submittingSpecial, setSubmittingSpecial] = useState(false);
+  const [attendance, setAttendance] = useState(null); // today's record
+  const [checkingIn,  setCheckingIn]  = useState(false);
+  const [checkingOut, setCheckingOut] = useState(false);
 
   useEffect(() => {
     const u1 = onValue(ref(db,"jobs"), s => setJobs(s.exists() ? s.val() : {}));
     const u2 = onValue(ref(db,"materials"), s => setMaterials(s.exists() ? s.val() : {}));
-    return () => { u1(); u2(); };
-  }, []);
+    const today = new Date().toISOString().split("T")[0];
+    const u3 = onValue(ref(db,`attendance/${today}/${user.techId}`), s => {
+      setAttendance(s.exists() ? s.val() : null);
+    });
+    return () => { u1(); u2(); u3(); };
+  }, [user.techId]);
 
   const allMyJobs = Object.entries(jobs).filter(([,j]) => j.techId === user.techId || (j.techIds||[]).includes(user.techId));
   const myJobs = allMyJobs
@@ -66,7 +79,9 @@ export default function Technician({ user, onLogout }) {
   const maxCount = Math.max(...monthlyData.map(m=>m.count), 1);
 
   async function updateStatus(jobId, newStatus) {
-    await update(ref(db,"jobs/"+jobId), { status:newStatus, updatedAt:new Date().toISOString(), updatedBy:user.name });
+    const tsField = { "on-way":"onWayAt", "on-site":"onSiteAt" }[newStatus];
+    const extra = tsField ? { [tsField]: new Date().toISOString() } : {};
+    await update(ref(db,"jobs/"+jobId), { status:newStatus, updatedAt:new Date().toISOString(), updatedBy:user.name, ...extra });
     setConfirming(null);
   }
 
@@ -127,16 +142,90 @@ export default function Technician({ user, onLogout }) {
 
   const totalCost = usedItems.reduce((a,i) => a+(i.price*i.qty), 0);
 
+  // Collection submit
+  async function submitCollection() {
+    if (!collectionForm.amountCollected) { alert("Ilagay ang amount na na-collect"); return; }
+    setSubmittingSpecial(true);
+    await update(ref(db,"jobs/"+collectionJobId), {
+      amountCollected: parseFloat(collectionForm.amountCollected)||0,
+      collectionNote:  collectionForm.collectionNote,
+      receipt:         collectionForm.receipt,
+      status:          "done",
+      updatedAt:       new Date().toISOString(),
+      updatedBy:       user.name,
+    });
+    setCollectionJobId(null); setCollectionForm({amountCollected:"",collectionNote:"",receipt:""});
+    setSubmittingSpecial(false);
+  }
+
+  // Pullout submit
+  async function submitPullout() {
+    setSubmittingSpecial(true);
+    await update(ref(db,"jobs/"+pulloutJobId), {
+      modemRetrieved:   pulloutForm.modemRetrieved,
+      adaptorRetrieved: pulloutForm.adaptorRetrieved,
+      otherItems:       pulloutForm.otherItems,
+      pulloutNote:      pulloutForm.pulloutNote,
+      status:           "done",
+      updatedAt:        new Date().toISOString(),
+      updatedBy:        user.name,
+    });
+    setPulloutJobId(null); setPulloutForm({modemRetrieved:false,adaptorRetrieved:false,otherItems:"",pulloutNote:""});
+    setSubmittingSpecial(false);
+  }
+
+  const todayStr = new Date().toISOString().split("T")[0];
+  const isCheckedIn  = attendance?.status && attendance.status !== "absent" && attendance.status !== "dayoff";
+  const isCheckedOut = !!attendance?.timeOut;
+
+  async function handleCheckIn() {
+    setCheckingIn(true);
+    const now = new Date();
+    const timeIn = now.toLocaleTimeString("en-PH",{hour:"2-digit",minute:"2-digit",hour12:true});
+    const hour = now.getHours();
+    const status = hour < 9 ? "present" : hour < 10 ? "late" : "late";
+    await set(ref(db,`attendance/${todayStr}/${user.techId}`), {
+      status, timeIn, timeOut:"", note:"",
+      techName: user.name,
+      checkedInAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    });
+    setCheckingIn(false);
+  }
+
+  async function handleCheckOut() {
+    setCheckingOut(true);
+    const now = new Date();
+    const timeOut = now.toLocaleTimeString("en-PH",{hour:"2-digit",minute:"2-digit",hour12:true});
+    await update(ref(db,`attendance/${todayStr}/${user.techId}`), {
+      timeOut, checkedOutAt: now.toISOString(), updatedAt: now.toISOString(),
+    });
+    setCheckingOut(false);
+  }
+
   return (
     <div style={s.app}>
       {/* HEADER */}
       <div style={s.header}>
         <div style={s.logo}>KEY<span style={{color:"#2dcc7a"}}>CONNECT</span></div>
         <div style={{display:"flex", alignItems:"center", gap:8}}>
-          <div style={{display:"flex", alignItems:"center", gap:6, background:"#081e13", border:"1px solid #1a5a2a", borderRadius:20, padding:"4px 12px"}}>
-            <span style={s.ldot} />
-            <span style={{fontSize:12, fontWeight:600, color:"#2dcc7a"}}>{user.name.split(" ")[0]}</span>
-          </div>
+          {/* Attendance status badge */}
+          {attendance ? (()=>{
+            const COLORS = { present:"#2dcc7a",late:"#f0a030",absent:"#f05555",halfday:"#9b78f5",leave:"#4d8ef5",dayoff:"#7b87b8" };
+            const ICONS  = { present:"✅",late:"⏰",absent:"❌",halfday:"🌗",leave:"🏖",dayoff:"🗓" };
+            const LABELS = { present:"Present",late:"Late",absent:"Absent",halfday:"Half Day",leave:"On Leave",dayoff:"Day Off" };
+            const col = COLORS[attendance.status]||"#7b87b8";
+            return (
+              <div style={{background:col+"22",border:`1px solid ${col}55`,borderRadius:20,padding:"3px 10px",display:"flex",alignItems:"center",gap:5}}>
+                <span style={{fontSize:12}}>{ICONS[attendance.status]||"?"}</span>
+                <span style={{fontSize:11,fontWeight:700,color:col}}>{LABELS[attendance.status]||attendance.status}</span>
+              </div>
+            );
+          })() : (
+            <div style={{background:"#111525",border:"1px solid #222840",borderRadius:20,padding:"3px 10px"}}>
+              <span style={{fontSize:11,color:"#3d4668"}}>No attendance</span>
+            </div>
+          )}
           {myJobs.length > 0 && (
             <div style={{background:"#f05555", color:"#fff", borderRadius:20, padding:"3px 10px", fontSize:11, fontWeight:700}}>
               {myJobs.length} active
@@ -148,7 +237,7 @@ export default function Technician({ user, onLogout }) {
 
       {/* BOTTOM NAV */}
       <div style={s.tabBar}>
-        {[["dashboard","◈","Dashboard"],["tasks","📋","Mga Task"],["history","📊","Records"]].map(([key,ic,lbl]) => (
+        {[["dashboard","◈","Dashboard"],["tasks","📋","Mga Task"],["history","📊","Records"],["calendar","📅","Calendar"]].map(([key,ic,lbl]) => (
           <button key={key} style={{...s.tabBtn, ...(tab===key ? s.tabActive : {})}} onClick={() => setTab(key)}>
             <span style={{fontSize:16}}>{ic}</span>
             <span style={{fontSize:10, marginTop:2}}>{lbl}</span>
@@ -162,9 +251,47 @@ export default function Technician({ user, onLogout }) {
       {/* ══ DASHBOARD ══ */}
       {tab==="dashboard" && (
         <div style={s.body}>
-          <div style={s.greeting}>
-            <div style={s.greetName}>Kumusta, {user.name.split(" ")[0]}! 👋</div>
-            <div style={s.greetSub}>{new Date().toLocaleDateString("en-PH",{weekday:"long",month:"long",day:"numeric"})}</div>
+          {/* CHECK-IN / CHECK-OUT WIDGET */}
+          <div style={{background:"#0c0f1a",border:"1.5px solid "+(isCheckedIn?(isCheckedOut?"#4d8ef5":"#2dcc7a"):"#222840"),borderRadius:14,padding:"16px",marginBottom:14}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+              <div>
+                <div style={{fontWeight:800,fontSize:17,color:"#dde3ff",letterSpacing:-.3}}>Kumusta, {user.name.split(" ")[0]}! 👋</div>
+                <div style={{fontSize:12,color:"#7b87b8",marginTop:2}}>{new Date().toLocaleDateString("en-PH",{weekday:"long",month:"long",day:"numeric"})}</div>
+              </div>
+              {isCheckedIn && (
+                <div style={{background:isCheckedOut?"#0d1535":"#081e13",border:"1px solid "+(isCheckedOut?"#4d8ef5":"#2dcc7a"),borderRadius:8,padding:"6px 12px",textAlign:"center"}}>
+                  <div style={{fontSize:9,fontWeight:700,letterSpacing:".1em",textTransform:"uppercase",color:isCheckedOut?"#4d8ef5":"#2dcc7a"}}>{isCheckedOut?"Checked Out":"Checked In"}</div>
+                  <div style={{fontFamily:"monospace",fontSize:14,fontWeight:800,color:isCheckedOut?"#4d8ef5":"#2dcc7a",marginTop:2}}>{isCheckedOut?attendance.timeOut:attendance?.timeIn}</div>
+                </div>
+              )}
+            </div>
+
+            {!isCheckedIn ? (
+              <button style={{width:"100%",background:"#2dcc7a",color:"#fff",border:"none",padding:"13px",borderRadius:10,fontFamily:"inherit",fontSize:15,fontWeight:800,cursor:checkingIn?"not-allowed":"pointer",opacity:checkingIn?0.6:1,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}
+                onClick={handleCheckIn} disabled={checkingIn}>
+                {checkingIn ? "⏳ Checking in..." : "🟢 CHECK IN"}
+              </button>
+            ) : !isCheckedOut ? (
+              <div style={{display:"flex",gap:8}}>
+                <div style={{flex:1,background:"#081e13",border:"1px solid #2dcc7a",borderRadius:10,padding:"10px 14px"}}>
+                  <div style={{fontSize:10,color:"#7b87b8",fontWeight:700,textTransform:"uppercase",letterSpacing:".07em",marginBottom:3}}>Naka-check in</div>
+                  <div style={{display:"flex",gap:14}}>
+                    <span style={{fontSize:11,color:"#7b87b8"}}>In: <strong style={{color:"#2dcc7a",fontFamily:"monospace"}}>{attendance?.timeIn}</strong></span>
+                    {attendance?.status==="late" && <span style={{fontSize:10,background:"#2a1805",color:"#f0a030",border:"1px solid #f0a03055",padding:"1px 6px",borderRadius:4,fontWeight:700}}>⏰ LATE</span>}
+                  </div>
+                </div>
+                <button style={{background:"#0d1535",color:"#4d8ef5",border:"1.5px solid #4d8ef5",padding:"10px 16px",borderRadius:10,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:checkingOut?"not-allowed":"pointer",opacity:checkingOut?0.6:1}}
+                  onClick={handleCheckOut} disabled={checkingOut}>
+                  {checkingOut?"⏳...":"🔵 CHECK OUT"}
+                </button>
+              </div>
+            ) : (
+              <div style={{background:"#0d1535",border:"1px solid #4d8ef5",borderRadius:10,padding:"10px 14px",display:"flex",gap:20,alignItems:"center"}}>
+                <span style={{fontSize:11,color:"#7b87b8"}}>In: <strong style={{color:"#2dcc7a",fontFamily:"monospace"}}>{attendance?.timeIn}</strong></span>
+                <span style={{fontSize:11,color:"#7b87b8"}}>Out: <strong style={{color:"#4d8ef5",fontFamily:"monospace"}}>{attendance?.timeOut}</strong></span>
+                <span style={{fontSize:11,color:"#7b87b8",marginLeft:"auto"}}>✅ Done for today</span>
+              </div>
+            )}
           </div>
 
           <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16}}>
@@ -255,6 +382,8 @@ export default function Technician({ user, onLogout }) {
                   setCancelJobId={setCancelJobId} setCancelReason={setCancelReason}
                   openInstallForm={openInstallForm} openDeclare={openDeclare}
                   updateStatus={updateStatus} addItem={addItem} changeQty={changeQty}
+                  setCollectionJobId={setCollectionJobId} setCollectionForm={setCollectionForm}
+                  setPulloutJobId={setPulloutJobId} setPulloutForm={setPulloutForm} jobs={jobs}
                 />
               ))}
             </>
@@ -293,7 +422,7 @@ export default function Technician({ user, onLogout }) {
           {historyJobs.length > 0 && (
             <>
               <div style={{display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:6, marginBottom:14}}>
-                {["install","repair","relocate","collection"].map(t => {
+                {["install","repair","relocate","collection","mainline","pullout"].map(t => {
                   const cnt = historyJobs.filter(([,j])=>j.type===t).length;
                   return (
                     <div key={t} style={{background:TASK_BG[t], border:"1px solid "+TASK_COLORS[t]+"44", borderRadius:8, padding:"8px 10px", textAlign:"center"}}>
@@ -334,6 +463,102 @@ export default function Technician({ user, onLogout }) {
             </>
           )}
           {historyJobs.length===0 && <div style={s.emptyCard}>Walang jobs para sa period na ito.</div>}
+        </div>
+      )}
+
+      {/* ══ CALENDAR ══ */}
+      {tab==="calendar" && (
+        <div style={s.body}>
+          <Calendar techId={user.techId} techName={user.name} />
+        </div>
+      )}
+
+      {/* ── COLLECTION MODAL ── */}
+      {collectionJobId && (
+        <div style={s.ov}>
+          <div style={{...s.modal,width:460}}>
+            <div style={{padding:"16px 18px",borderBottom:"1px solid #222840"}}>
+              <div style={{fontSize:16,fontWeight:800,color:"#ffc04d"}}>💰 Collection Record</div>
+              <div style={{fontSize:11,color:"#7b87b8",marginTop:2}}>{jobs[collectionJobId]?.client} · {jobs[collectionJobId]?.jo}</div>
+              {jobs[collectionJobId]?.amountToCollect && (
+                <div style={{fontSize:12,color:"#ffc04d",marginTop:4}}>Target: ₱{parseFloat(jobs[collectionJobId].amountToCollect).toLocaleString()}</div>
+              )}
+            </div>
+            <div style={{padding:"16px 18px"}}>
+              <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:12}}>
+                <label style={{fontSize:9.5,fontWeight:700,letterSpacing:".07em",textTransform:"uppercase",color:"#7b87b8"}}>Amount Collected (₱) *</label>
+                <input type="number" style={{...s.fi,fontSize:22,fontWeight:800,color:"#ffc04d",fontFamily:"monospace"}}
+                  value={collectionForm.amountCollected} onChange={e=>setCollectionForm({...collectionForm,amountCollected:e.target.value})}
+                  placeholder="0.00" min="0" step="0.01" autoFocus />
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:12}}>
+                <label style={{fontSize:9.5,fontWeight:700,letterSpacing:".07em",textTransform:"uppercase",color:"#7b87b8"}}>Note / Remarks</label>
+                <textarea style={{...s.fi,minHeight:70,resize:"vertical"}}
+                  value={collectionForm.collectionNote} onChange={e=>setCollectionForm({...collectionForm,collectionNote:e.target.value})}
+                  placeholder="Bayad sa bill, bayad sa modem, etc..." />
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:4}}>
+                <label style={{fontSize:9.5,fontWeight:700,letterSpacing:".07em",textTransform:"uppercase",color:"#7b87b8"}}>Receipt / OR Number</label>
+                <input style={s.fi} value={collectionForm.receipt} onChange={e=>setCollectionForm({...collectionForm,receipt:e.target.value})}
+                  placeholder="OR-XXXXXX (optional)" />
+              </div>
+            </div>
+            <div style={{padding:"12px 18px",borderTop:"1px solid #222840",display:"flex",justifyContent:"flex-end",gap:8}}>
+              <button style={s.btnGhost} onClick={()=>setCollectionJobId(null)}>Cancel</button>
+              <button style={{...s.btnPrimary,background:"#ffc04d",color:"#1a0e00"}} onClick={submitCollection} disabled={submittingSpecial}>
+                {submittingSpecial?"Saving...":"💰 Submit Collection"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── PULLOUT MODAL ── */}
+      {pulloutJobId && (
+        <div style={s.ov}>
+          <div style={{...s.modal,width:460}}>
+            <div style={{padding:"16px 18px",borderBottom:"1px solid #222840"}}>
+              <div style={{fontSize:16,fontWeight:800,color:"#c084fc"}}>📦 Pullout Declaration</div>
+              <div style={{fontSize:11,color:"#7b87b8",marginTop:2}}>{jobs[pulloutJobId]?.client} · {jobs[pulloutJobId]?.jo}</div>
+            </div>
+            <div style={{padding:"16px 18px"}}>
+              <div style={{fontSize:10,fontWeight:700,letterSpacing:".1em",textTransform:"uppercase",color:"#c084fc",marginBottom:12}}>Equipment Retrieved</div>
+              {[
+                ["modemRetrieved",    "📡 Modem (ONU) — complete unit"],
+                ["adaptorRetrieved",  "🔌 Power Adaptor / Charger"],
+              ].map(([field,label])=>(
+                <div key={field} style={{display:"flex",alignItems:"center",gap:12,background:pulloutForm[field]?"#1e0a30":"#111525",border:`1px solid ${pulloutForm[field]?"#c084fc44":"#222840"}`,borderRadius:9,padding:"12px 14px",marginBottom:8,cursor:"pointer"}}
+                  onClick={()=>setPulloutForm({...pulloutForm,[field]:!pulloutForm[field]})}>
+                  <div style={{width:24,height:24,borderRadius:6,background:pulloutForm[field]?"#c084fc":"#222840",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>
+                    {pulloutForm[field]?"✓":""}
+                  </div>
+                  <span style={{fontSize:13,color:pulloutForm[field]?"#dde3ff":"#7b87b8",fontWeight:pulloutForm[field]?600:400}}>{label}</span>
+                </div>
+              ))}
+              <div style={{display:"flex",flexDirection:"column",gap:4,marginTop:12,marginBottom:12}}>
+                <label style={{fontSize:9.5,fontWeight:700,letterSpacing:".07em",textTransform:"uppercase",color:"#7b87b8"}}>Other Items Retrieved</label>
+                <input style={s.fi} value={pulloutForm.otherItems} onChange={e=>setPulloutForm({...pulloutForm,otherItems:e.target.value})}
+                  placeholder="LAN cable, splitter, drop wire, etc." />
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                <label style={{fontSize:9.5,fontWeight:700,letterSpacing:".07em",textTransform:"uppercase",color:"#7b87b8"}}>Note</label>
+                <textarea style={{...s.fi,minHeight:60,resize:"vertical"}}
+                  value={pulloutForm.pulloutNote} onChange={e=>setPulloutForm({...pulloutForm,pulloutNote:e.target.value})}
+                  placeholder="Client wala sa bahay, nabasa ang equipment, etc." />
+              </div>
+              {!pulloutForm.modemRetrieved && !pulloutForm.adaptorRetrieved && (
+                <div style={{marginTop:10,background:"#2a1805",border:"1px solid #f0a03044",borderRadius:8,padding:"8px 12px",fontSize:12,color:"#f0a030"}}>
+                  ⚠ Hindi ka nag-check ng kahit anong item. OK pa rin mag-submit kung wala talagang nakuha.
+                </div>
+              )}
+            </div>
+            <div style={{padding:"12px 18px",borderTop:"1px solid #222840",display:"flex",justifyContent:"flex-end",gap:8}}>
+              <button style={s.btnGhost} onClick={()=>setPulloutJobId(null)}>Cancel</button>
+              <button style={{...s.btnPrimary,background:"#c084fc",color:"#1a0028"}} onClick={submitPullout} disabled={submittingSpecial}>
+                {submittingSpecial?"Saving...":"📦 Submit Pullout Report"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -495,8 +720,10 @@ export default function Technician({ user, onLogout }) {
 }
 
 // ── TASK CARD ──
-function TaskCard({ id, j, materials, usedItems, setUsedItems, totalCost, confirming, setConfirming, setCancelJobId, setCancelReason, openInstallForm, openDeclare, updateStatus, addItem, changeQty }) {
-  const isInstall = j.type==="install";
+function TaskCard({ id, j, materials, usedItems, setUsedItems, totalCost, confirming, setConfirming, setCancelJobId, setCancelReason, openInstallForm, openDeclare, updateStatus, addItem, changeQty, setCollectionJobId, setCollectionForm, setPulloutJobId, setPulloutForm, jobs }) {
+  const isInstall    = j.type==="install";
+  const isCollection = j.type==="collection";
+  const isPullout    = j.type==="pullout";
   const isUrgent = j.priority==="urgent";
   const borderColor = isUrgent ? "#f05555" : ({dispatched:"#4d8ef5","on-way":"#9b78f5","on-site":"#20c8b0","for-approval":"#f0a030",configuring:"#4d8ef5",activated:"#2dcc7a"}[j.status]||"#222840");
 
@@ -521,6 +748,51 @@ function TaskCard({ id, j, materials, usedItems, setUsedItems, totalCost, confir
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           <button style={{...s.actBtn,background:"#9b78f5"}} onClick={() => openInstallForm(id)}>📡 &nbsp;Submit Installation Details + MAC</button>
           <button style={s.cancelBtn} onClick={() => { setCancelJobId(id); setCancelReason(""); }}>✕ Hindi Ma-install / Cancel</button>
+        </div>
+      );
+    } else if (isCollection) {
+      // COLLECTION — show amount collected + note
+      actions = (
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {j.amountToCollect && (
+            <div style={{background:"#2a1800",border:"1px solid #ffc04d44",borderRadius:8,padding:"10px 14px"}}>
+              <div style={{fontSize:10,fontWeight:700,color:"#ffc04d",textTransform:"uppercase",letterSpacing:".07em",marginBottom:3}}>Target Collection</div>
+              <div style={{fontFamily:"monospace",fontSize:18,fontWeight:800,color:"#ffc04d"}}>₱{parseFloat(j.amountToCollect||0).toLocaleString()}</div>
+            </div>
+          )}
+          {j.amountCollected && (
+            <div style={{background:"#081e13",border:"1px solid #2dcc7a",borderRadius:8,padding:"8px 12px",fontSize:12,color:"#2dcc7a",fontWeight:700}}>
+              ✅ Collected: ₱{parseFloat(j.amountCollected||0).toLocaleString()}
+              {j.collectionNote && <div style={{fontSize:11,color:"#7b87b8",marginTop:2,fontWeight:400}}>{j.collectionNote}</div>}
+            </div>
+          )}
+          <button style={{...s.actBtn,background:"#ffc04d",color:"#1a0e00"}}
+            onClick={() => { setCollectionJobId(id); setCollectionForm({amountCollected:j.amountCollected||"",collectionNote:j.collectionNote||"",receipt:j.receipt||""}); }}>
+            💰 &nbsp;I-record ang Collection
+          </button>
+          <button style={s.cancelBtn} onClick={() => { setCancelJobId(id); setCancelReason(""); }}>✕ Cancel Task</button>
+        </div>
+      );
+    } else if (isPullout) {
+      // PULLOUT — declare what was retrieved
+      actions = (
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {(j.modemRetrieved !== undefined) && (
+            <div style={{background:"#1e0a30",border:"1px solid #c084fc44",borderRadius:8,padding:"10px 14px"}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#c084fc",marginBottom:6}}>Retrieved Items:</div>
+              <div style={{fontSize:12,color:"#dde3ff"}}>
+                {j.modemRetrieved ? "✅" : "❌"} Modem &nbsp;|&nbsp;
+                {j.adaptorRetrieved ? "✅" : "❌"} Adaptor
+                {j.otherItems ? ` | ${j.otherItems}` : ""}
+              </div>
+              {j.pulloutNote && <div style={{fontSize:11,color:"#7b87b8",marginTop:4}}>{j.pulloutNote}</div>}
+            </div>
+          )}
+          <button style={{...s.actBtn,background:"#c084fc",color:"#1a0028"}}
+            onClick={() => { setPulloutJobId(id); setPulloutForm({modemRetrieved:j.modemRetrieved||false,adaptorRetrieved:j.adaptorRetrieved||false,otherItems:j.otherItems||"",pulloutNote:j.pulloutNote||""}); }}>
+            📦 &nbsp;I-declare ang Nakuha (Pullout)
+          </button>
+          <button style={s.cancelBtn} onClick={() => { setCancelJobId(id); setCancelReason(""); }}>✕ Cancel Task</button>
         </div>
       );
     } else {
@@ -588,7 +860,7 @@ function TaskCard({ id, j, materials, usedItems, setUsedItems, totalCost, confir
   const guide = {
     dispatched:"I-tap kapag umalis ka na.",
     "on-way":"I-tap kapag nandoon ka na.",
-    "on-site": isInstall ? "I-submit ang installation details at MAC Address." : "I-tap ang TAPOS NA kapag done ka.",
+    "on-site": isInstall ? "I-submit ang installation details at MAC Address." : isCollection ? "I-record ang na-collect na bayad." : isPullout ? "I-declare ang nakuha mong equipment." : "I-tap ang TAPOS NA kapag done ka.",
     "for-approval":"Naghihintay ng IT.",
     configuring:"Kina-configure ng IT ang modem.",
     activated:"Activated! Ibigay ang credentials sa client.",

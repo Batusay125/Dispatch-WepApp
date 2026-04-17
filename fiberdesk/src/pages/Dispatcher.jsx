@@ -1,11 +1,13 @@
 import { useState, useEffect } from "react";
 import { db } from "../firebase/config";
 import { ref, onValue, push, set, update, remove } from "firebase/database";
-import { SITES, TASK_COLORS, TASK_BG, STATUS_COLORS, STATUS_BG } from "../constants.jsx";
+import { SITES, TASK_COLORS, TASK_BG, STATUS_COLORS, STATUS_BG, TASK_TYPES } from "../constants.jsx";
 import Reports from "./Report";
 import Materials from "./Material";
 import KPI from "./KPI";
 import Attendance from "./Attendance";
+import JobTracking from "./JobTracking";
+import Calendar from "./Calendar";
 
 export default function Dispatcher({ user, onLogout }) {
   const [page, setPage] = useState("dashboard");
@@ -26,10 +28,12 @@ export default function Dispatcher({ user, onLogout }) {
   const [typeFilter, setTypeFilter] = useState("all");
   const [siteFilter, setSiteFilter] = useState("all");
   const [specificDate, setSpecificDate] = useState(new Date().toISOString().split("T")[0]);
+  const [specificMonth, setSpecificMonth] = useState(new Date().toISOString().slice(0,7));
   const [isMobile, setIsMobile] = useState(false);
+  const [todayAttendance, setTodayAttendance] = useState({});
 
   function emptyForm() {
-    return { acct: "", client: "", contact: "", address: "", site: "Socorro", type: "install", priority: "normal", lcp: "", nap: "", port: "", notes: "", date: new Date().toISOString().split("T")[0], techIds: [], plan: "", referral: "", installFee: "" };
+    return { acct: "", client: "", contact: "", address: "", site: "Socorro", type: "install", priority: "normal", lcp: "", nap: "", port: "", notes: "", date: new Date().toISOString().split("T")[0], techIds: [], plan: "", referral: "", installFee: "", amountToCollect: "" };
   }
 
   // Get current technician names from techs object
@@ -38,11 +42,23 @@ export default function Dispatcher({ user, onLogout }) {
   }
 
   useEffect(() => {
+    const today = new Date().toISOString().split("T")[0];
     const u1 = onValue(ref(db, "jobs"), s => setJobs(s.exists() ? s.val() : {}));
     const u2 = onValue(ref(db, "technicians"), s => setTechs(s.exists() ? s.val() : {}));
     const u3 = onValue(ref(db, "deletedJobs"), s => setDeletedJobs(s.exists() ? s.val() : {}));
-    return () => { u1(); u2(); u3(); };
+    const u4 = onValue(ref(db, `attendance/${today}`), s => setTodayAttendance(s.exists() ? s.val() : {}));
+    return () => { u1(); u2(); u3(); u4(); };
   }, []);
+
+  const CAN_DEPLOY = ["present","late","halfday"];
+  function techCanDeploy(techId) {
+    const a = todayAttendance[techId];
+    if (!a || !a.status) return true; // no record = allowed
+    return CAN_DEPLOY.includes(a.status);
+  }
+  const ATTEND_STATUS_COLOR = { present:"#2dcc7a", late:"#f0a030", absent:"#f05555", halfday:"#9b78f5", leave:"#4d8ef5", dayoff:"#7b87b8" };
+  const ATTEND_STATUS_LABEL = { present:"Present", late:"Late", absent:"Absent", halfday:"Half Day", leave:"On Leave", dayoff:"Day Off" };
+  const ATTEND_STATUS_ICON  = { present:"✅", late:"⏰", absent:"❌", halfday:"🌗", leave:"🏖", dayoff:"🗓" };
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -61,7 +77,8 @@ export default function Dispatcher({ user, onLogout }) {
       (dateFilter === "today" && j.date === today) ||
       (dateFilter === "this-week" && j.date >= weekStart) ||
       (dateFilter === "this-month" && j.date >= monthStart) ||
-      (dateFilter === "specific" && j.date === specificDate);
+      (dateFilter === "specific" && j.date === specificDate) ||
+      (dateFilter === "month" && j.date?.startsWith(specificMonth));
     const sf = statusFilter === "all" || j.status === statusFilter;
     const tf = typeFilter === "all" || j.type === typeFilter;
     const sif = siteFilter === "all" || j.site === siteFilter;
@@ -95,7 +112,8 @@ export default function Dispatcher({ user, onLogout }) {
     } else {
       // New job — set status based on tech assignment
       const jo = "JO-" + Date.now().toString().slice(-6);
-      const data = { ...form, jo, techNames, status: form.techIds.length > 0 ? "dispatched" : "pending", createdAt: new Date().toISOString(), createdBy: user.name };
+      const now = new Date().toISOString();
+      const data = { ...form, jo, techNames, status: form.techIds.length > 0 ? "dispatched" : "pending", createdAt: now, createdBy: user.name, ...(form.techIds.length > 0 ? { dispatchedAt: now } : {}) };
       await push(ref(db, "jobs"), data);
     }
     setShowModal(false); setEditJobId(null); setForm(emptyForm());
@@ -103,7 +121,7 @@ export default function Dispatcher({ user, onLogout }) {
 
   function openEdit(jobId) {
     const j = jobs[jobId];
-    setForm({ acct: j.acct || "", client: j.client || "", contact: j.contact || "", address: j.address || "", site: j.site || "Socorro", type: j.type || "install", priority: j.priority || "normal", lcp: j.lcp || "", nap: j.nap || "", port: j.port || "", notes: j.notes || "", date: j.date || "", techIds: j.techIds || [], plan: j.plan || "", referral: j.referral || "", installFee: j.installFee || "" });
+    setForm({ acct: j.acct || "", client: j.client || "", contact: j.contact || "", address: j.address || "", site: j.site || "Socorro", type: j.type || "install", priority: j.priority || "normal", lcp: j.lcp || "", nap: j.nap || "", port: j.port || "", notes: j.notes || "", date: j.date || "", techIds: j.techIds || [], plan: j.plan || "", referral: j.referral || "", installFee: j.installFee || "", amountToCollect: j.amountToCollect || "" });
     setEditJobId(jobId); setShowModal(true);
   }
   
@@ -112,7 +130,13 @@ export default function Dispatcher({ user, onLogout }) {
   }
 
   async function updateStatus(jobId, status) {
-    await update(ref(db, "jobs/" + jobId), { status, updatedAt: new Date().toISOString() });
+    const tsField = {
+      dispatched: "dispatchedAt",
+      "on-way":   "onWayAt",
+      "on-site":  "onSiteAt",
+    }[status];
+    const extraFields = tsField ? { [tsField]: new Date().toISOString() } : {};
+    await update(ref(db, "jobs/" + jobId), { status, updatedAt: new Date().toISOString(), ...extraFields });
   }
 
   async function archiveJob(jobId) {
@@ -172,12 +196,14 @@ export default function Dispatcher({ user, onLogout }) {
     ["technicians", "🔧", "Technicians", null],
     ["reports", "◫", "Reports", null],
     ["kpi", "📈", "KPI Reports", null],
+    ["jobtracking","🗺", "Job Tracking", null],
+    ["calendar",   "📅", "Calendar",     null],
     ["attendance", "🗂", "Attendance", null],
     ["materials", "🗃", "Materials", null],
     ["trash", "🗑️", "Trash", deletedList.length > 0 ? deletedList.length : null],
   ];
 
-  const pageLabels = { dashboard: "Dashboard", jobs: "Job Orders", pipeline: "Pipeline", dispatch: "Dispatch Board", technicians: "Technicians", reports: "Reports", kpi: "KPI Reports", attendance: "Attendance", materials: "Materials", trash: "Trash" };
+  const pageLabels = { dashboard: "Dashboard", jobs: "Job Orders", pipeline: "Pipeline", dispatch: "Dispatch Board", technicians: "Technicians", reports: "Reports", kpi: "KPI Reports", jobtracking: "Job Tracking", calendar: "Calendar", attendance: "Attendance", materials: "Materials", trash: "Trash" };
 
   return (
     <div style={s.app}>
@@ -307,7 +333,7 @@ export default function Dispatcher({ user, onLogout }) {
                     </div>
                     <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
                       <span style={{ fontSize: 10, color: "#7b87b8", minWidth: 40 }}>Task:</span>
-                      {[["all","All"],["install","Install"],["repair","Repair"],["relocate","Relocate"],["collection","Collection"]].map(([k, lbl]) => (
+                      {[["all","All"],["install","Install"],["repair","Repair"],["relocate","Relocate"],["collection","Collection"],["mainline","Mainline"],["pullout","Pull-Out"]].map(([k, lbl]) => (
                         <button key={k} style={{ ...s.ftab, ...(typeFilter === k ? s.ftabActive : {}) }} onClick={() => setTypeFilter(k)}>{lbl}</button>
                       ))}
                     </div>
@@ -320,12 +346,16 @@ export default function Dispatcher({ user, onLogout }) {
                     </div>
                     <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
                       <span style={{ fontSize: 10, color: "#7b87b8", minWidth: 40 }}>Date:</span>
-                      {[["all","All Dates"],["today","Today"],["this-week","This Week"],["this-month","This Month"],["specific","Specific Date"]].map(([k, lbl]) => (
+                      {[["all","All Dates"],["today","Today"],["this-week","This Week"],["this-month","This Month"],["specific","Specific Day"],["month","Pick Month"]].map(([k, lbl]) => (
                         <button key={k} style={{ ...s.ftab, ...(dateFilter === k ? s.ftabActive : {}) }} onClick={() => setDateFilter(k)}>{lbl}</button>
                       ))}
                       {dateFilter === "specific" && (
                         <input type="date" value={specificDate} onChange={e => setSpecificDate(e.target.value)}
                           style={{ background:"#111525", border:"1px solid #4d8ef5", color:"#dde3ff", padding:"4px 10px", borderRadius:5, fontFamily:"inherit", fontSize:11, outline:"none" }} />
+                      )}
+                      {dateFilter === "month" && (
+                        <input type="month" value={specificMonth} onChange={e => setSpecificMonth(e.target.value)}
+                          style={{ background:"#111525", border:"1px solid #9b78f5", color:"#dde3ff", padding:"4px 10px", borderRadius:5, fontFamily:"inherit", fontSize:11, outline:"none" }} />
                       )}
                     </div>
                   </div>
@@ -515,6 +545,16 @@ export default function Dispatcher({ user, onLogout }) {
             <div>
               <KPI />
             </div>
+          )}
+
+          {/* JOB TRACKING */}
+          {page === "jobtracking" && (
+            <div><JobTracking /></div>
+          )}
+
+          {/* CALENDAR */}
+          {page === "calendar" && (
+            <div><Calendar /></div>
           )}
 
           {/* ATTENDANCE */}
@@ -709,14 +749,34 @@ export default function Dispatcher({ user, onLogout }) {
                 </FG>
 
                 <FG label="Assign Technicians">
-                  <div style={{background:"#111525",border:"1px solid #222840",borderRadius:8,padding:"8px 11px",maxHeight:120,overflowY:"auto"}}>
-                    {Object.entries(techs).map(([id,t])=>(
-                      <label key={id} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:12,color:"#dde3ff",marginBottom:4}}>
-                        <input type="checkbox" checked={form.techIds.includes(id)} onChange={e=>{const ids=e.target.checked?[...form.techIds,id]:form.techIds.filter(x=>x!==id);setForm({...form,techIds:ids})}} style={{margin:0}} />
-                        {t.name}
-                      </label>
-                    ))}
+                  <div style={{background:"#111525",border:"1px solid #222840",borderRadius:8,padding:"8px 11px",maxHeight:150,overflowY:"auto"}}>
+                    {Object.entries(techs).map(([id,t])=>{
+                      const canDeploy = techCanDeploy(id);
+                      const attend = todayAttendance[id];
+                      const aStatus = attend?.status;
+                      return (
+                        <label key={id} style={{display:"flex",alignItems:"center",gap:7,cursor:canDeploy?"pointer":"not-allowed",fontSize:12,color:canDeploy?"#dde3ff":"#f05555",marginBottom:6,opacity:canDeploy?1:0.65}}>
+                          <input type="checkbox" checked={form.techIds.includes(id)}
+                            onChange={e=>{
+                              if(!canDeploy){alert(`⛔ Hindi pwedeng i-assign si ${t.name} — ${ATTEND_STATUS_LABEL[aStatus]||"Absent/Unavailable"} ngayon.`);return;}
+                              const ids=e.target.checked?[...form.techIds,id]:form.techIds.filter(x=>x!==id);
+                              setForm({...form,techIds:ids});
+                            }} style={{margin:0}} disabled={!canDeploy} />
+                          <div style={{width:22,height:22,borderRadius:"50%",background:t.bg||"#0d1e42",color:t.color||"#4d8ef5",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800,flexShrink:0}}>{t.initials||t.name[0]}</div>
+                          <span style={{flex:1}}>{t.name}</span>
+                          {aStatus ? (
+                            <span style={{fontSize:10,color:ATTEND_STATUS_COLOR[aStatus]||"#7b87b8",fontWeight:700}}>
+                              {ATTEND_STATUS_ICON[aStatus]} {ATTEND_STATUS_LABEL[aStatus]}
+                              {attend?.timeIn ? ` · ${attend.timeIn}` : ""}
+                            </span>
+                          ) : (
+                            <span style={{fontSize:10,color:"#3d4668"}}>No record</span>
+                          )}
+                        </label>
+                      );
+                    })}
                   </div>
+                  <div style={{fontSize:10.5,color:"#7b87b8",marginTop:5}}>⛔ = Hindi pwedeng i-assign (Absent/Leave/Day Off)</div>
                 </FG>
 
                 <div style={s.fsec}>Update Status</div>
@@ -741,7 +801,7 @@ export default function Dispatcher({ user, onLogout }) {
                 </div>
                 <div style={s.fsec}>Job Details</div>
                 <div style={s.f3}>
-                  <FG label="Task Type"><select style={s.fi} value={form.type} onChange={e => setForm({...form, type: e.target.value})}><option value="install">INSTALL</option><option value="repair">REPAIR</option><option value="relocate">RELOCATE</option><option value="collection">COLLECTION</option></select></FG>
+                  <FG label="Task Type"><select style={s.fi} value={form.type} onChange={e => setForm({...form, type: e.target.value})}><option value="install">INSTALL</option><option value="repair">REPAIR</option><option value="relocate">RELOCATE</option><option value="collection">COLLECTION</option><option value="mainline">MAINLINE ISSUE</option><option value="pullout">PULL-OUT</option></select></FG>
                   <FG label="Site"><select style={s.fi} value={form.site} onChange={e => setForm({...form, site: e.target.value})}>{SITES.map(s => <option key={s}>{s}</option>)}</select></FG>
                   <FG label="Priority"><select style={s.fi} value={form.priority} onChange={e => setForm({...form, priority: e.target.value})}><option value="normal">Normal</option><option value="urgent">🔴 Urgent</option></select></FG>
                 </div>
@@ -755,18 +815,46 @@ export default function Dispatcher({ user, onLogout }) {
                     <input style={s.fi} type="number" value={form.installFee} onChange={e => setForm({...form, installFee: e.target.value})} placeholder="0.00" min="0" step="0.01" />
                   </FG>
                 )}
-                <FG label="Notes / Issue"><input style={s.fi} value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} placeholder="LOS / NO NET / FOR RELOCATION..." /></FG>
+                {form.type === "collection" && (
+                  <FG label="Amount to Collect (₱)">
+                    <input style={s.fi} type="number" value={form.amountToCollect||""} onChange={e => setForm({...form, amountToCollect: e.target.value})} placeholder="0.00" min="0" step="0.01" />
+                  </FG>
+                )}
+                {form.type === "pullout" && (
+                  <div style={s.fsec}>Pullout Details</div>
+                )}
+                <FG label="Notes / Issue"><input style={s.fi} value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} placeholder="LOS / NO NET / FOR RELOCATION / MAINLINE ISSUE..." /></FG>
                 <div style={s.f2}>
                   <FG label="Scheduled Date"><input style={s.fi} type="date" value={form.date} onChange={e => setForm({...form, date: e.target.value})} /></FG>
                   <FG label="Assign Technicians (1-3)">
-                    <div style={{background:"#111525",border:"1px solid #222840",borderRadius:8,padding:"8px 11px",maxHeight:120,overflowY:"auto"}}>
-                      {Object.entries(techs).map(([id,t])=>(
-                        <label key={id} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:12,color:"#dde3ff",marginBottom:4}}>
-                          <input type="checkbox" checked={form.techIds.includes(id)} onChange={e=>{const ids=e.target.checked?[...form.techIds,id]:form.techIds.filter(x=>x!==id);setForm({...form,techIds:ids})}} style={{margin:0}} />
-                          {t.name}
-                        </label>
-                      ))}
+                    <div style={{background:"#111525",border:"1px solid #222840",borderRadius:8,padding:"8px 11px",maxHeight:150,overflowY:"auto"}}>
+                      {Object.entries(techs).map(([id,t])=>{
+                        const canDeploy = techCanDeploy(id);
+                        const attend = todayAttendance[id];
+                        const aStatus = attend?.status;
+                        return (
+                          <label key={id} style={{display:"flex",alignItems:"center",gap:7,cursor:canDeploy?"pointer":"not-allowed",fontSize:12,color:canDeploy?"#dde3ff":"#f05555",marginBottom:6,opacity:canDeploy?1:0.65}}>
+                            <input type="checkbox" checked={form.techIds.includes(id)}
+                              onChange={e=>{
+                                if(!canDeploy){alert(`⛔ Hindi pwedeng i-assign si ${t.name} — ${ATTEND_STATUS_LABEL[aStatus]||"Absent/Unavailable"} ngayon.`);return;}
+                                const ids=e.target.checked?[...form.techIds,id]:form.techIds.filter(x=>x!==id);
+                                setForm({...form,techIds:ids});
+                              }} style={{margin:0}} disabled={!canDeploy} />
+                            <div style={{width:22,height:22,borderRadius:"50%",background:t.bg||"#0d1e42",color:t.color||"#4d8ef5",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800,flexShrink:0}}>{t.initials||t.name[0]}</div>
+                            <span style={{flex:1}}>{t.name}</span>
+                            {aStatus ? (
+                              <span style={{fontSize:10,color:ATTEND_STATUS_COLOR[aStatus]||"#7b87b8",fontWeight:700}}>
+                                {ATTEND_STATUS_ICON[aStatus]} {ATTEND_STATUS_LABEL[aStatus]}
+                                {attend?.timeIn ? ` · ${attend.timeIn}` : ""}
+                              </span>
+                            ) : (
+                              <span style={{fontSize:10,color:"#3d4668"}}>No record</span>
+                            )}
+                          </label>
+                        );
+                      })}
                     </div>
+                    <div style={{fontSize:10.5,color:"#7b87b8",marginTop:5}}>⛔ = Hindi pwedeng i-assign (Absent/Leave/Day Off)</div>
                   </FG>
                 </div>
               </div>
