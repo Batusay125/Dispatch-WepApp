@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { auth, db } from "../firebase/config";
 import { signInWithEmailAndPassword, signInAnonymously } from "firebase/auth";
 import { ref, get, set } from "firebase/database";
-import { DEFAULT_TECHS, DEFAULT_MATERIALS } from "../constants";
+
 
 const DISPATCHER_EMAILS = [
   { name:"Aeriel", email:"aeriel@keyconnect.com", color:"#4d8ef5", bg:"#0d1e42", initials:"AE" },
@@ -10,10 +10,17 @@ const DISPATCHER_EMAILS = [
   { name:"Jeff",   email:"jeff@keyconnect.com",   color:"#20c8b0", bg:"#052220", initials:"JF" },
 ];
 const IT_EMAILS = [
+  { name:"Gedion (IT Head)", email:"gedion@keyconnect.com",  color:"#f0a030", bg:"#2a1a05", initials:"GD" },
+  { name:"Jeff",   email:"jeff@keyconnect.com",    color:"#20c8b0", bg:"#052220", initials:"JF" },
   { name:"Aeriel", email:"aeriel@keyconnect.com",  color:"#4d8ef5", bg:"#0d1e42", initials:"AE" },
   { name:"Riki",   email:"riki@keyconnect.com",    color:"#9b78f5", bg:"#160f30", initials:"RI" },
-  { name:"Jeff",   email:"jeff@keyconnect.com",    color:"#20c8b0", bg:"#052220", initials:"JF" },
-  { name:"Gedion", email:"gedion@keyconnect.com",  color:"#f0a030", bg:"#2a1a05", initials:"GD" },
+];
+
+// CSR accounts stored in Firebase DB (Admin collection)
+// These are the clickable shortcuts — password still verified against DB
+const CSR_PROFILES = [
+  { name:"Hannah", initials:"HN", color:"#f472b6", bg:"#2d0a1e" },
+  { name:"Angel",  initials:"AN", color:"#a78bfa", bg:"#1e0a2d" },
 ];
 
 export default function Login({ onLogin }) {
@@ -27,6 +34,7 @@ export default function Login({ onLogin }) {
   const [foundTech, setFoundTech] = useState(null);
   const [techList,  setTechList]  = useState([]);
   const [username,  setUsername]  = useState("");
+  const [csrUser,    setCsrUser]    = useState(null);  // selected CSR profile
 
   // Load technicians for clickable profiles
   useEffect(() => {
@@ -97,6 +105,33 @@ export default function Login({ onLogin }) {
     setLoading(false);
   }
 
+  // ── CSR LOGIN (checks Firebase DB under Admin/) ──
+  async function handleCSRLogin() {
+    if (!csrUser) { setError("Piliin ang iyong account"); return; }
+    if (!password) { setError("Ilagay ang password"); return; }
+    setLoading(true); setError("");
+    try {
+      // Authenticate anonymously to satisfy auth != null rule
+      await signInAnonymously(auth);
+      // Check credentials against Firebase DB
+      const snap = await get(ref(db, "staff/Admin"));
+      if (!snap.exists()) { setError("Walang CSR accounts sa database."); setLoading(false); return; }
+      const accounts = Object.values(snap.val());
+      const found = accounts.find(a =>
+        a.name?.toLowerCase() === csrUser.name.toLowerCase() &&
+        a.password === password &&
+        a.role === "CSR"
+      );
+      if (found) {
+        await seedData();
+        onLogin({ role:"dispatcher", name: found.name, isCsr: true });
+      } else {
+        setError("Mali ang password.");
+      }
+    } catch(err) { setError("Error: " + err.message); }
+    setLoading(false);
+  }
+
   // ── TECH: search by typing ──
   async function findTechByUsername() {
     if (!username.trim()) { setError("Ilagay ang username"); return; }
@@ -160,7 +195,8 @@ export default function Login({ onLogin }) {
       <div style={s.sub}>KeyConnect · Real-time Dispatch</div>
       <div style={s.secLabel}>Pumili ng iyong role</div>
       <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:20}}>
-        <RoleCard icon="🎧" title="Dispatcher / CSR"  desc="Mag-create at mag-assign ng job orders"   color="#4d8ef5" bg="#0d1e42" onClick={()=>{setScreen("dispatcher");setSelUser(null);setError("");}} />
+        <RoleCard icon="🎧" title="Dispatcher"         desc="Mag-create at mag-assign ng job orders"   color="#4d8ef5" bg="#0d1e42" onClick={()=>{setScreen("dispatcher");setSelUser(null);setError("");}} />
+        <RoleCard icon="📞" title="CSR"                desc="Customer Service — mag-create ng job orders" color="#f472b6" bg="#2d0a1e" onClick={()=>{setScreen("csr");setCsrUser(null);setError("");setPassword("");}} />
         <RoleCard icon="💻" title="IT / Network"       desc="Mag-activate ng internet ng mga clients"   color="#20c8b0" bg="#052220" onClick={()=>{setScreen("it");setSelUser(null);setError("");}} />
         <RoleCard icon="🔧" title="Technician"         desc="Tingnan ang tasks at i-update ang status"  color="#2dcc7a" bg="#081e13" onClick={()=>{setScreen("tech");setError("");setUsername("");}} />
       </div>
@@ -250,6 +286,55 @@ export default function Login({ onLogin }) {
         </div>
       )}
       {!selUser && error && <div style={{...s.error,marginTop:8}}>{error}</div>}
+    </Bg>
+  );
+
+  // CSR
+  if (screen === "csr") return (
+    <Bg>
+      <button style={s.backBtn} onClick={goHome}>← Bumalik</button>
+      <div style={s.rh}>
+        <div style={{fontSize:26,marginBottom:5}}>📞</div>
+        <div style={{...s.rt, color:"#f472b6"}}>CSR Login</div>
+        <div style={s.rs}>Customer Service Representative</div>
+      </div>
+
+      {/* CSR PROFILE CARDS */}
+      <div style={{...s.profileGrid, marginBottom:16}}>
+        {CSR_PROFILES.map((u,i) => (
+          <ProfileCard key={i} user={u} selected={csrUser?.name===u.name}
+            onClick={()=>{ setCsrUser(u); setError(""); setPassword(""); setShowPass(false); }} />
+        ))}
+      </div>
+
+      {csrUser && (
+        <div style={s.pwSection}>
+          <div style={s.selBanner}>
+            <div style={{...s.selAv, background:csrUser.bg, color:csrUser.color}}>{csrUser.initials}</div>
+            <div>
+              <div style={{fontWeight:700,fontSize:14,color:"#dde3ff"}}>{csrUser.name}</div>
+              <div style={{fontSize:11,color:"#f472b6"}}>CSR · KeyConnect ISP</div>
+            </div>
+          </div>
+          <label style={s.lbl}>Password</label>
+          <div style={{position:"relative",marginBottom:12}}>
+            <input style={{...s.input,paddingRight:40,borderColor:"#f472b644"}}
+              type={showPass?"text":"password"} placeholder="Password"
+              value={password} onChange={e=>setPassword(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&handleCSRLogin()} autoFocus />
+            <button style={s.eyeBtn} onClick={()=>setShowPass(p=>!p)}>{showPass?"🙈":"👁"}</button>
+          </div>
+          {error && <div style={s.error}>{error}</div>}
+          <button style={{...s.btn, background:"#f472b6", color:"#1a0010"}} onClick={handleCSRLogin} disabled={loading}>
+            {loading?"Checking...":"Pumasok →"}
+          </button>
+        </div>
+      )}
+      {!csrUser && error && <div style={{...s.error,marginTop:8}}>{error}</div>}
+
+      <div style={{marginTop:14,background:"#1e0a2d",border:"1px solid #a78bfa44",borderRadius:10,padding:"10px 14px",fontSize:11.5,color:"#a78bfa"}}>
+        💡 CSR accounts ay pinamamahalaan ng Admin sa Firebase Console.
+      </div>
     </Bg>
   );
 
