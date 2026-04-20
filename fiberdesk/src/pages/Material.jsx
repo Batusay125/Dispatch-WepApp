@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { db } from "../firebase/config";
 import { ref, onValue, push, set, remove, update } from "firebase/database";
 
+
 export default function Materials() {
   const [materials, setMaterials] = useState({});
   const [showModal, setShowModal] = useState(false);

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { db } from "../firebase/config";
-import { ref, onValue, update, set, get } from "firebase/database";
+import { ref, onValue, update, set, get, push } from "firebase/database";
 import Calendar from "./Calendar";
 
 const TASK_COLORS = { install:"#4dff88", repair:"#ff8c3d", relocate:"#7db8ff", collection:"#ffc04d", mainline:"#ff5fa0", pullout:"#c084fc" };
@@ -13,6 +13,7 @@ const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov
 export default function Technician({ user, onLogout }) {
   const [jobs, setJobs] = useState({});
   const [materials, setMaterials] = useState({});
+  const [inventory, setInventory]   = useState({});
   const [tab, setTab] = useState("dashboard");
   const [historyView, setHistoryView] = useState("daily");
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
@@ -40,11 +41,12 @@ export default function Technician({ user, onLogout }) {
   useEffect(() => {
     const u1 = onValue(ref(db,"jobs"), s => setJobs(s.exists() ? s.val() : {}));
     const u2 = onValue(ref(db,"materials"), s => setMaterials(s.exists() ? s.val() : {}));
+    const uInv = onValue(ref(db,"inventory"), s => setInventory(s.exists() ? s.val() : {}));
     const today = new Date().toISOString().split("T")[0];
     const u3 = onValue(ref(db,`attendance/${today}/${user.techId}`), s => {
       setAttendance(s.exists() ? s.val() : null);
     });
-    return () => { u1(); u2(); u3(); };
+    return () => { u1(); u2(); u3(); uInv(); };
   }, [user.techId]);
 
   const allMyJobs = Object.entries(jobs).filter(([,j]) => j.techId === user.techId || (j.techIds||[]).includes(user.techId));
@@ -110,6 +112,7 @@ export default function Technician({ user, onLogout }) {
       macSubmittedAt:new Date().toISOString(), updatedBy:user.name,
       materialsUsed:usedItems, materialsTotal:matTotal
     });
+    await deductInventory(user.techId, usedItems, jobs[installJobId]);
     setInstallJobId(null); setUsedItems([]);
   }
 
@@ -120,6 +123,13 @@ export default function Technician({ user, onLogout }) {
 
   function addItem(matId) {
     const mat = materials[matId]; if (!mat) return;
+    // Check against inventory — block if stock would go below 0
+    const inStock   = inventory[user.techId]?.[matId]?.qty ?? null;
+    const alreadyUsed = usedItems.find(i => i.matId===matId)?.qty || 0;
+    if (inStock !== null && alreadyUsed >= inStock) {
+      alert(`⛔ Wala nang stock ng ${mat.name}!\nInventory mo: ${inStock} ${mat.unit}\nMag-request ka muna sa admin.`);
+      return;
+    }
     const idx = usedItems.findIndex(i => i.matId===matId);
     if (idx>=0) { const u=[...usedItems]; u[idx].qty+=1; setUsedItems(u); }
     else setUsedItems([...usedItems, {matId, name:mat.name, unit:mat.unit, price:mat.price, qty:1}]);
@@ -127,16 +137,51 @@ export default function Technician({ user, onLogout }) {
 
   function changeQty(i, val) {
     const u = [...usedItems];
-    u[i].qty = Math.max(0, parseInt(val)||0);
+    const item = u[i];
+    const inStock = inventory[user.techId]?.[item.matId]?.qty ?? null;
+    const parsed  = Math.max(0, parseInt(val)||0);
+    // Clamp to stock if inventory exists
+    if (inStock !== null && parsed > inStock) {
+      alert(`⛔ Max stock ng ${item.name}: ${inStock} ${item.unit}`);
+      u[i].qty = inStock;
+    } else {
+      u[i].qty = parsed;
+    }
     setUsedItems(u.filter(x => x.qty>0));
+  }
+
+
+  // Auto-deduct from inventory when tech declares materials
+  async function deductInventory(techId, items, jobData) {
+    if (!techId || !items?.length) return;
+    const updates = {};
+    for (const item of items) {
+      if (!item.matId || !item.qty) continue;
+      const current = inventory[techId]?.[item.matId];
+      if (!current) continue;
+      const prevQty = current.qty || 0;
+      const newQty  = Math.max(0, prevQty - item.qty);
+      updates[`inventory/${techId}/${item.matId}`] = {
+        ...current, qty: newQty, lastUpdated: new Date().toISOString(),
+      };
+      await push(ref(db,"inventoryLogs"), {
+        type:"auto-deduct", matId:item.matId, matName:item.name||current.matName,
+        techId, techName:user.name, qty:-item.qty, prevQty, newQty,
+        jo:jobData?.jo||"", note:`Used in job ${jobData?.jo||""} — ${jobData?.client||""}`,
+        timestamp:new Date().toISOString(), by:user.name,
+      });
+    }
+    if (Object.keys(updates).length > 0) await update(ref(db), updates);
   }
 
   async function submitDeclaration() {
     const total = usedItems.reduce((a,i) => a+(i.price*i.qty), 0);
+    const job   = jobs[declareJobId];
     await update(ref(db,"jobs/"+declareJobId), {
       materialsUsed:usedItems, materialsTotal:total,
       status:"done", updatedAt:new Date().toISOString(), updatedBy:user.name
     });
+    await deductInventory(user.techId, usedItems, job);
     setDeclareJobId(null); setUsedItems([]); setConfirming(null);
   }
 
@@ -624,12 +669,30 @@ export default function Technician({ user, onLogout }) {
 
               <Fsec>Materials Ginamit</Fsec>
               <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, marginBottom:10}}>
-                {Object.entries(materials).map(([id,m]) => (
-                  <button key={id} style={s.matBtn} onClick={() => addItem(id)}>
-                    <span style={{color:"#2dcc7a", fontWeight:700}}>+</span>{m.name}
-                    <span style={{fontSize:10, color:"#7b87b8", marginLeft:"auto"}}>₱{m.price}/{m.unit}</span>
-                  </button>
-                ))}
+                {Object.entries(materials).map(([id,m]) => {
+                  const inStock   = inventory[user.techId]?.[id]?.qty ?? null;
+                  const alreadyUsed = usedItems.find(i=>i.matId===id)?.qty || 0;
+                  const noStock   = inStock !== null && inStock === 0;
+                  const maxed     = inStock !== null && alreadyUsed >= inStock;
+                  const disabled  = noStock || maxed;
+                  return (
+                    <button key={id}
+                      disabled={disabled}
+                      onClick={() => addItem(id)}
+                      style={{
+                        ...s.matBtn,
+                        opacity: disabled ? 0.45 : 1,
+                        cursor:  disabled ? "not-allowed" : "pointer",
+                        border:  noStock  ? "1px solid #f0555544" : maxed ? "1px solid #f0a03044" : s.matBtn.border,
+                      }}>
+                      <span style={{color: disabled?"#f05555":"#2dcc7a", fontWeight:700}}>{disabled?"✕":"+"}</span>
+                      <span style={{flex:1}}>{m.name}</span>
+                      <span style={{fontSize:10, color: noStock?"#f05555":maxed?"#f0a030":"#7b87b8", marginLeft:"auto", fontFamily:"monospace"}}>
+                        {inStock===null ? `₱${m.price}/${m.unit}` : noStock ? "OUT" : maxed ? `MAX(${inStock})` : `${inStock-alreadyUsed} left`}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
               {usedItems.length > 0 && (
                 <div style={{background:"#111525", border:"1px solid #222840", borderRadius:8, overflow:"hidden", marginBottom:8}}>
@@ -672,12 +735,30 @@ export default function Technician({ user, onLogout }) {
             </div>
             <div style={{padding:"16px 18px"}}>
               <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, marginBottom:14}}>
-                {Object.entries(materials).map(([id,m]) => (
-                  <button key={id} style={s.matBtn} onClick={() => addItem(id)}>
-                    <span style={{color:"#2dcc7a", fontWeight:700}}>+</span>{m.name}
-                    <span style={{fontSize:10, color:"#7b87b8", marginLeft:"auto"}}>₱{m.price}/{m.unit}</span>
-                  </button>
-                ))}
+                {Object.entries(materials).map(([id,m]) => {
+                  const inStock   = inventory[user.techId]?.[id]?.qty ?? null;
+                  const alreadyUsed = usedItems.find(i=>i.matId===id)?.qty || 0;
+                  const noStock   = inStock !== null && inStock === 0;
+                  const maxed     = inStock !== null && alreadyUsed >= inStock;
+                  const disabled  = noStock || maxed;
+                  return (
+                    <button key={id}
+                      disabled={disabled}
+                      onClick={() => addItem(id)}
+                      style={{
+                        ...s.matBtn,
+                        opacity: disabled ? 0.45 : 1,
+                        cursor:  disabled ? "not-allowed" : "pointer",
+                        border:  noStock  ? "1px solid #f0555544" : maxed ? "1px solid #f0a03044" : s.matBtn.border,
+                      }}>
+                      <span style={{color: disabled?"#f05555":"#2dcc7a", fontWeight:700}}>{disabled?"✕":"+"}</span>
+                      <span style={{flex:1}}>{m.name}</span>
+                      <span style={{fontSize:10, color: noStock?"#f05555":maxed?"#f0a030":"#7b87b8", marginLeft:"auto", fontFamily:"monospace"}}>
+                        {inStock===null ? `₱${m.price}/${m.unit}` : noStock ? "OUT" : maxed ? `MAX(${inStock})` : `${inStock-alreadyUsed} left`}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
               {usedItems.length > 0 && (
                 <div style={{background:"#111525", border:"1px solid #222840", borderRadius:8, overflow:"hidden", marginBottom:12}}>

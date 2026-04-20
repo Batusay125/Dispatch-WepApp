@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { auth, db } from "../firebase/config";
-import { signInWithEmailAndPassword, signInAnonymously } from "firebase/auth";
+import { signInWithEmailAndPassword, signInAnonymously, setPersistence, browserLocalPersistence } from "firebase/auth";
 import { ref, get, set } from "firebase/database";
 
 
@@ -10,17 +10,17 @@ const DISPATCHER_EMAILS = [
   { name:"Jeff",   email:"jeff@keyconnect.com",   color:"#20c8b0", bg:"#052220", initials:"JF" },
 ];
 const IT_EMAILS = [
-  { name:"Gedion (IT Head)", email:"gedion@keyconnect.com",  color:"#f0a030", bg:"#2a1a05", initials:"GD" },
-  { name:"Jeff",   email:"jeff@keyconnect.com",    color:"#20c8b0", bg:"#052220", initials:"JF" },
   { name:"Aeriel", email:"aeriel@keyconnect.com",  color:"#4d8ef5", bg:"#0d1e42", initials:"AE" },
   { name:"Riki",   email:"riki@keyconnect.com",    color:"#9b78f5", bg:"#160f30", initials:"RI" },
+  { name:"Jeff",   email:"jeff@keyconnect.com",    color:"#20c8b0", bg:"#052220", initials:"JF" },
+  { name:"Gedion", email:"gedion@keyconnect.com",  color:"#f0a030", bg:"#2a1a05", initials:"GD" },
 ];
 
-// CSR accounts stored in Firebase DB (Admin collection)
-// These are the clickable shortcuts — password still verified against DB
+// CSR accounts — use Firebase Auth (email/password) for proper security
+// Add these emails in Firebase Console > Authentication > Users
 const CSR_PROFILES = [
-  { name:"Hannah", initials:"HN", color:"#f472b6", bg:"#2d0a1e" },
-  { name:"Angel",  initials:"AN", color:"#a78bfa", bg:"#1e0a2d" },
+  { name:"Hannah", email:"hannah@keyconnect.com", initials:"HN", color:"#f472b6", bg:"#2d0a1e" },
+  { name:"Angel",  email:"angel@keyconnect.com",  initials:"AN", color:"#a78bfa", bg:"#1e0a2d" },
 ];
 
 export default function Login({ onLogin }) {
@@ -45,6 +45,7 @@ export default function Login({ onLogin }) {
 
   async function loadTechs() {
     try {
+      await setPersistence(auth, browserLocalPersistence);
       await signInAnonymously(auth);
       const snap = await get(ref(db, "technicians"));
       if (snap.exists()) {
@@ -85,6 +86,7 @@ export default function Login({ onLogin }) {
     if (!password) { setError("Ilagay ang password"); return; }
     setLoading(true); setError("");
     try {
+      await setPersistence(auth, browserLocalPersistence);
       await signInWithEmailAndPassword(auth, selUser.email, password);
       await seedData();
       onLogin({ role:"dispatcher", name: selUser.name });
@@ -98,6 +100,7 @@ export default function Login({ onLogin }) {
     if (!password) { setError("Ilagay ang password"); return; }
     setLoading(true); setError("");
     try {
+      await setPersistence(auth, browserLocalPersistence);
       await signInWithEmailAndPassword(auth, selUser.email, password);
       await seedData();
       onLogin({ role:"it", name: selUser.name });
@@ -105,30 +108,17 @@ export default function Login({ onLogin }) {
     setLoading(false);
   }
 
-  // ── CSR LOGIN (checks Firebase DB under Admin/) ──
+  // ── CSR LOGIN — Firebase Auth (email/password, same as Dispatcher/IT) ──
   async function handleCSRLogin() {
     if (!csrUser) { setError("Piliin ang iyong account"); return; }
     if (!password) { setError("Ilagay ang password"); return; }
     setLoading(true); setError("");
     try {
-      // Authenticate anonymously to satisfy auth != null rule
-      await signInAnonymously(auth);
-      // Check credentials against Firebase DB
-      const snap = await get(ref(db, "staff/Admin"));
-      if (!snap.exists()) { setError("Walang CSR accounts sa database."); setLoading(false); return; }
-      const accounts = Object.values(snap.val());
-      const found = accounts.find(a =>
-        a.name?.toLowerCase() === csrUser.name.toLowerCase() &&
-        a.password === password &&
-        a.role === "CSR"
-      );
-      if (found) {
-        await seedData();
-        onLogin({ role:"dispatcher", name: found.name, isCsr: true });
-      } else {
-        setError("Mali ang password.");
-      }
-    } catch(err) { setError("Error: " + err.message); }
+      await setPersistence(auth, browserLocalPersistence);
+      await signInWithEmailAndPassword(auth, csrUser.email, password);
+      await seedData();
+      onLogin({ role:"csr", name: csrUser.name, isCsr: true });
+    } catch(err) { setError(getAuthError(err.code)); }
     setLoading(false);
   }
 
@@ -137,6 +127,7 @@ export default function Login({ onLogin }) {
     if (!username.trim()) { setError("Ilagay ang username"); return; }
     setLoading(true); setError("");
     try {
+      await setPersistence(auth, browserLocalPersistence);
       await signInAnonymously(auth);
       await seedData();
       const snap = await get(ref(db,"technicians"));
