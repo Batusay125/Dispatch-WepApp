@@ -5,22 +5,23 @@ import { ref, get, set } from "firebase/database";
 
 
 const DISPATCHER_EMAILS = [
+  { name:"Gedion", email:"gedion@keyconnect.com",  color:"#f0a030", bg:"#2a1a05", initials:"GD" },
   { name:"Aeriel", email:"aeriel@keyconnect.com", color:"#4d8ef5", bg:"#0d1e42", initials:"AE" },
-  { name:"Riki",   email:"riki@keyconnect.com",   color:"#9b78f5", bg:"#160f30", initials:"RI" },
   { name:"Jeff",   email:"jeff@keyconnect.com",   color:"#20c8b0", bg:"#052220", initials:"JF" },
+  { name:"Riki",   email:"riki@keyconnect.com",   color:"#9b78f5", bg:"#160f30", initials:"RI" },
 ];
 const IT_EMAILS = [
-  { name:"Aeriel", email:"aeriel@keyconnect.com",  color:"#4d8ef5", bg:"#0d1e42", initials:"AE" },
-  { name:"Riki",   email:"riki@keyconnect.com",    color:"#9b78f5", bg:"#160f30", initials:"RI" },
-  { name:"Jeff",   email:"jeff@keyconnect.com",    color:"#20c8b0", bg:"#052220", initials:"JF" },
   { name:"Gedion", email:"gedion@keyconnect.com",  color:"#f0a030", bg:"#2a1a05", initials:"GD" },
+  { name:"Aeriel", email:"aeriel@keyconnect.com",  color:"#4d8ef5", bg:"#0d1e42", initials:"AE" },
+  { name:"Jeff",   email:"jeff@keyconnect.com",    color:"#20c8b0", bg:"#052220", initials:"JF" },
+  { name:"Riki",   email:"riki@keyconnect.com",    color:"#9b78f5", bg:"#160f30", initials:"RI" },
 ];
 
 // CSR accounts — use Firebase Auth (email/password) for proper security
 // Add these emails in Firebase Console > Authentication > Users
 const CSR_PROFILES = [
-  { name:"Hannah", email:"hannah@keyconnect.com", initials:"HN", color:"#f472b6", bg:"#2d0a1e" },
   { name:"Angel",  email:"angel@keyconnect.com",  initials:"AN", color:"#a78bfa", bg:"#1e0a2d" },
+  { name:"Hannah", email:"hannah@keyconnect.com", initials:"HN", color:"#f472b6", bg:"#2d0a1e" },
 ];
 
 export default function Login({ onLogin }) {
@@ -191,7 +192,7 @@ export default function Login({ onLogin }) {
         <RoleCard icon="💻" title="IT / Network"       desc="Mag-activate ng internet ng mga clients"   color="#20c8b0" bg="#052220" onClick={()=>{setScreen("it");setSelUser(null);setError("");}} />
         <RoleCard icon="🔧" title="Technician"         desc="Tingnan ang tasks at i-update ang status"  color="#2dcc7a" bg="#081e13" onClick={()=>{setScreen("tech");setError("");setUsername("");}} />
       </div>
-      <div style={s.footer}>KeyConnect ISP · Marilao, Bulacan</div>
+      <div style={s.footer}>KeyConnect ISP · LAWA, Bulacan</div>
     </Bg>
   );
 
