@@ -14,6 +14,8 @@ export default function Technician({ user, onLogout }) {
   const [jobs, setJobs] = useState({});
   const [materials, setMaterials] = useState({});
   const [inventory, setInventory]   = useState({});
+  const [portIndex,  setPortIndex]    = useState({});
+  const [portStatus, setPortStatus]   = useState(null);
   const [tab, setTab] = useState("dashboard");
   const [historyView, setHistoryView] = useState("daily");
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
@@ -42,11 +44,12 @@ export default function Technician({ user, onLogout }) {
     const u1 = onValue(ref(db,"jobs"), s => setJobs(s.exists() ? s.val() : {}));
     const u2 = onValue(ref(db,"materials"), s => setMaterials(s.exists() ? s.val() : {}));
     const uInv = onValue(ref(db,"inventory"), s => setInventory(s.exists() ? s.val() : {}));
+    const uPort = onValue(ref(db,"portIndex"),   s => setPortIndex(s.exists()  ? s.val() : {}));
     const today = new Date().toISOString().split("T")[0];
     const u3 = onValue(ref(db,`attendance/${today}/${user.techId}`), s => {
       setAttendance(s.exists() ? s.val() : null);
     });
-    return () => { u1(); u2(); u3(); uInv(); };
+    return () => { u1(); u2(); u3(); uInv(); uPort(); };
   }, [user.techId]);
 
   const allMyJobs = Object.entries(jobs).filter(([,j]) => j.techId === user.techId || (j.techIds||[]).includes(user.techId));
@@ -103,9 +106,40 @@ export default function Technician({ user, onLogout }) {
     setInstallJobId(jobId);
   }
 
+
+  // ── Port validation ──────────────────────────────────────────
+  function checkPort(lcp, nap, port) {
+    if (!lcp || !nap || !port) { setPortStatus(null); return; }
+    setPortStatus("checking");
+    const key = (lcp+nap+port).replace(/\s/g,"").toUpperCase();
+    const entry = portIndex[key];
+    if (!entry) {
+      setPortStatus("notfound"); // not in portIndex — warn but allow
+    } else {
+      setPortStatus(entry.status); // "available" | "used" | "reserved"
+    }
+  }
+
+  function handleLcpNapPortChange(field, val) {
+    const updated = { ...installForm, [field]: val };
+    setInstallForm(updated);
+    checkPort(updated.lcp, updated.nap, updated.port);
+  }
+
   async function submitInstallDetails() {
     if (!installForm.macAddress.trim()) { alert("Kailangan ang MAC Address"); return; }
     if (!installForm.lcp || !installForm.nap || !installForm.port) { alert("Ilagay ang LCP, NAP, at PORT"); return; }
+    // Port conflict check
+    const portKey = (installForm.lcp+installForm.nap+installForm.port).replace(/\s/g,"").toUpperCase();
+    const portEntry = portIndex[portKey];
+    if (portEntry && portEntry.status === "used") {
+      alert(`⛔ Port ${portKey} ay USED na!\nClient: ${portEntry.clientName||"—"}\nPumili ng ibang port.`);
+      return;
+    }
+    if (portEntry && portEntry.status === "reserved") {
+      const proceed = window.confirm(`⚠️ Port ${portKey} ay RESERVED para sa ibang job.\nGusto mo pa rin gamitin ito?`);
+      if (!proceed) return;
+    }
     const matTotal = usedItems.reduce((a,i) => a+(i.price*i.qty), 0);
     await update(ref(db,"jobs/"+installJobId), {
       ...installForm, status:"for-approval",
@@ -113,7 +147,7 @@ export default function Technician({ user, onLogout }) {
       materialsUsed:usedItems, materialsTotal:matTotal
     });
     await deductInventory(user.techId, usedItems, jobs[installJobId]);
-    setInstallJobId(null); setUsedItems([]);
+    setInstallJobId(null); setUsedItems([]); setPortStatus(null);
   }
 
   function openDeclare(jobId) {
@@ -654,11 +688,28 @@ export default function Technician({ user, onLogout }) {
               </div>
 
               <Fsec>Network Info (ikaw ang maglalagay)</Fsec>
-              <div style={s.f3}>
-                <NumPrefixFI label="LCP *" prefix="L" v={installForm.lcp} set={v => setInstallForm({...installForm,lcp:v})} />
-                <NumPrefixFI label="NAP *" prefix="N" v={installForm.nap} set={v => setInstallForm({...installForm,nap:v})} />
-                <NumPrefixFI label="Port *" prefix="P" v={installForm.port} set={v => setInstallForm({...installForm,port:v})} />
+              {/* LCP NAP PORT — responsive, with live port status */}
+              <div style={{display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginBottom:4}}>
+                <NumPrefixFI label="LCP *" prefix="L" v={installForm.lcp}  set={v => handleLcpNapPortChange("lcp",  v)} />
+                <NumPrefixFI label="NAP *" prefix="N" v={installForm.nap}  set={v => handleLcpNapPortChange("nap",  v)} />
+                <NumPrefixFI label="Port *" prefix="P" v={installForm.port} set={v => handleLcpNapPortChange("port", v)} />
               </div>
+              {/* Port status indicator */}
+              {portStatus && (
+                <div style={{
+                  display:"flex", alignItems:"center", gap:7, marginBottom:14,
+                  padding:"8px 12px", borderRadius:8, fontSize:12, fontWeight:600,
+                  background: portStatus==="available" ? "#081e13" : portStatus==="used" ? "#2a0a0a" : portStatus==="reserved" ? "#2a1805" : portStatus==="checking" ? "#111525" : "#1a1030",
+                  border: `1px solid ${portStatus==="available"?"#2dcc7a44":portStatus==="used"?"#f0555544":portStatus==="reserved"?"#f0a03044":portStatus==="checking"?"#222840":"#9b78f544"}`,
+                  color: portStatus==="available" ? "#2dcc7a" : portStatus==="used" ? "#f05555" : portStatus==="reserved" ? "#f0a030" : portStatus==="checking" ? "#7b87b8" : "#9b78f5",
+                }}>
+                  {portStatus==="checking"  && <><span>⏳</span><span>Checking port...</span></>}
+                  {portStatus==="available" && <><span>✅</span><span>Port {(installForm.lcp+installForm.nap+installForm.port).replace(/\s/g,"").toUpperCase()} — Available</span></>}
+                  {portStatus==="used"      && <><span>🔴</span><span>Port {(installForm.lcp+installForm.nap+installForm.port).replace(/\s/g,"").toUpperCase()} — USED na! Pumili ng iba.</span></>}
+                  {portStatus==="reserved"  && <><span>🟡</span><span>Port {(installForm.lcp+installForm.nap+installForm.port).replace(/\s/g,"").toUpperCase()} — Reserved para sa ibang job</span></>}
+                  {portStatus==="notfound"  && <><span>⚠️</span><span>Port hindi pa naka-register sa system — OK lang ituloy</span></>}
+                </div>
+              )}
 
               <Fsec>Modem Info (para sa IT)</Fsec>
               <div style={s.f2}>
@@ -716,7 +767,7 @@ export default function Technician({ user, onLogout }) {
               )}
             </div>
             <div style={{padding:"12px 18px", borderTop:"1px solid #222840", display:"flex", justifyContent:"flex-end", gap:8}}>
-              <button style={s.btnGhost} onClick={() => { setInstallJobId(null); setUsedItems([]); }}>Cancel</button>
+              <button style={s.btnGhost} onClick={() => { setInstallJobId(null); setUsedItems([]); setPortStatus(null); }}>Cancel</button>
               <button style={{...s.btnPrimary, background:"#9b78f5"}} onClick={submitInstallDetails}>
                 📡 I-submit sa IT {usedItems.length>0 ? "(+"+usedItems.length+" materials)" : ""}
               </button>
@@ -995,19 +1046,20 @@ function FI({ label, v, set, ph, mono, big, full, ta }) {
 function NumPrefixFI({ label, prefix, v, set }) {
   const numVal = v ? v.replace(new RegExp("^"+prefix,"i"), "") : "";
   return (
-    <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:12}}>
+    <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:4}}>
       <label style={{fontSize:9.5,fontWeight:700,letterSpacing:".07em",textTransform:"uppercase",color:"#7b87b8"}}>{label}</label>
-      <div style={{display:"flex",alignItems:"center",background:"#111525",border:"1px solid #222840",borderRadius:8,overflow:"hidden"}}>
-        <span style={{padding:"8px 10px",background:"#0d1535",color:"#4d8ef5",fontFamily:"monospace",fontSize:16,fontWeight:800,borderRight:"1px solid #222840",flexShrink:0}}>{prefix}</span>
+      <div style={{display:"flex",alignItems:"center",background:"#111525",border:"1px solid #222840",borderRadius:10,overflow:"hidden",minHeight:52}}>
+        <span style={{padding:"10px 10px",background:"#0d1535",color:"#4d8ef5",fontFamily:"monospace",fontSize:18,fontWeight:800,borderRight:"1px solid #222840",flexShrink:0,minWidth:36,textAlign:"center"}}>{prefix}</span>
         <input
-          style={{flex:1,background:"#111525",border:"none",color:"#dde3ff",padding:"8px 11px",fontFamily:"monospace",fontSize:16,fontWeight:700,outline:"none"}}
+          style={{flex:1,background:"#111525",border:"none",color:"#dde3ff",padding:"10px 8px",fontFamily:"monospace",fontSize:20,fontWeight:800,outline:"none",textAlign:"center",width:"100%",minWidth:0}}
           type="number" min="1"
+          inputMode="numeric"
           value={numVal}
           onChange={e => set(e.target.value ? prefix+e.target.value : "")}
-          placeholder="1"
+          placeholder="?"
         />
       </div>
-      {v && <div style={{fontSize:10,color:"#20c8b0",fontFamily:"monospace",marginTop:2}}>→ {v}</div>}
+      {v && <div style={{fontSize:11,color:"#20c8b0",fontFamily:"monospace",marginTop:3,textAlign:"center",fontWeight:700}}>{v}</div>}
     </div>
   );
 }

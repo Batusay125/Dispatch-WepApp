@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { db } from "../firebase/config";
-import { ref, onValue, update } from "firebase/database";
-
+import { ref, onValue, update, get, runTransaction, push } from "firebase/database";
+import { buildPortKey, activatePort, reservePort } from "./portDb";
 
 const STATUS_MAP = {
   pending:        { label: "Pending",          color: "#f0a030", bg: "#2a1805" },
@@ -30,10 +30,9 @@ export default function ITPortal({ user, onLogout }) {
   const [selected, setSelected] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState("");
-
-  const [copied, setCopied] = useState("");
+  const [copied,   setCopied]   = useState("");
   const [editUser, setEditUser] = useState("");
-  const [editPass, setEditPass] = useState("");// which field was copied
+  const [editPass, setEditPass] = useState("");
 
   useEffect(() => {
     return onValue(ref(db, "jobs"), snap => {
@@ -67,31 +66,46 @@ export default function ITPortal({ user, onLogout }) {
     });
   }
 
-async function submitActivation() {
-  if (!selected) return;
+  async function submitActivation() {
+    if (!selected) return;
+    if (!editUser.trim()) { alert("Ilagay ang Username"); return; }
+    if (!editPass.trim()) { alert("Ilagay ang Password"); return; }
 
-  if (!editUser.trim()) {
-    alert("Ilagay ang Username");
-    return;
+    // Port conflict check — block if already USED by another client
+    if (selectedJob?.lcp && selectedJob?.nap && selectedJob?.port) {
+      const portKey = buildPortKey(selectedJob.lcp, selectedJob.nap, selectedJob.port);
+      const snap = await get(ref(db,`portIndex/${portKey}`));
+      if (snap.exists()) {
+        const p = snap.val();
+        if (p.status === "used" && p.jobId !== selected) {
+          alert(`⛔ Port ${portKey} is already USED by ${p.clientName||"another client"}!\nHindi pwedeng mag-activate. I-check ang port assignment.`);
+          return;
+        }
+      }
+    }
+
+    setSubmitting(true);
+    const itData = {
+      lcp: selectedJob.lcp, nap: selectedJob.nap, port: selectedJob.port,
+      itUsername: editUser.trim(), itPassword: editPass.trim(), itBy: user.name,
+    };
+    const portKey = selectedJob.lcp && selectedJob.nap && selectedJob.port
+      ? buildPortKey(selectedJob.lcp, selectedJob.nap, selectedJob.port) : null;
+
+    // Update job + create installation record + mark port as used
+    if (portKey) {
+      await activatePort(portKey, selectedJob, selected, itData);
+    }
+    await update(ref(db, "jobs/" + selected), {
+      status: "activated",
+      itUsername: editUser.trim(),
+      itPassword: editPass.trim(),
+      itBy: user.name,
+      activatedAt: new Date().toISOString(),
+    });
+    setPortStatus({ status:"used", clientName: selectedJob.client });
+    setSubmitting(false);
   }
-
-  if (!editPass.trim()) {
-    alert("Ilagay ang Password");
-    return;
-  }
-
-  setSubmitting(true);
-
-  await update(ref(db, "jobs/" + selected), {
-    status: "activated",
-    itUsername: editUser.trim(),
-    itPassword: editPass.trim(),
-    itBy: user.name,
-    activatedAt: new Date().toISOString(),
-  });
-
-  setSubmitting(false);
-}
 
   function copyToClipboard(text, label) {
     navigator.clipboard.writeText(text).then(() => {
@@ -149,11 +163,19 @@ async function submitActivation() {
               return (
                 <div key={id}
                   style={{ ...s.jobItem, ...(isSelected ? s.jobItemActive : {}), ...(j.status === "for-approval" ? { borderLeft: "3px solid #f0a030" } : {}) }}
-                  onClick={() => {
+                  onClick={async() => {
                     setSelected(id);
-                    setEditUser(generateUsername(j, id));
-                    setEditPass(j.macAddress || "");
+                    setEditUser(generateUsername(j,id));
+                    setEditPass(j.macAddress||"");
                     setCopied("");
+                    setPortStatus(null);
+                    if (j.lcp && j.nap && j.port) {
+                      setPortChecking(true);
+                      const key = buildPortKey(j.lcp, j.nap, j.port);
+                      const snap = await get(ref(db,`portIndex/${key}`));
+                      setPortStatus(snap.exists() ? snap.val() : { status:"unregistered" });
+                      setPortChecking(false);
+                    }
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
@@ -251,129 +273,97 @@ async function submitActivation() {
               {selectedJob.macAddress && (selectedJob.status === "for-approval" || selectedJob.status === "configuring" || selectedJob.status === "activated") && (
                 <Section title="🔐 Internet Credentials (Ibibigay sa Tech)">
 
- {/* EDITABLE USERNAME */}
-<div style = {{ marginBottom: 14 }}>
-<div style = {{ fontSize: 10, fontWeight: 700, color: "#7b87b8", marginBottom: 6 }}>
-    USERNAME (Editable)
-  </div>
+                  {/* Port Status Banner */}
+                  {(()=>{
+                    const portKey = selectedJob.lcp&&selectedJob.nap&&selectedJob.port
+                      ? buildPortKey(selectedJob.lcp,selectedJob.nap,selectedJob.port) : null;
+                    if (!portKey) return null;
+                    if (portChecking) return (
+                      <div style={{background:"#111525",border:"1px solid #222840",borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:12,color:"#7b87b8"}}>
+                        ⏳ Checking port {portKey}...
+                      </div>
+                    );
+                    if (!portStatus) return (
+                      <div style={{background:"#2a1805",border:"1px solid #f0a03044",borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:12,color:"#f0a030"}}>
+                        ⚠ Port {portKey} — hindi naka-register sa Port Index. Hindi ma-track.
+                      </div>
+                    );
+                    const pStyle = {
+                      available:{bg:"#081e13",border:"#2dcc7a",color:"#2dcc7a",icon:"○",msg:"Available — pwedeng i-activate"},
+                      reserved: {bg:"#2a1805",border:"#f0a030",color:"#f0a030",icon:"◌",msg:"Reserved para sa job na ito"},
+                      used:     {bg:"#0d1535",border:"#4d8ef5",color:"#4d8ef5",icon:"●",msg:portStatus.clientName?`Used — ${portStatus.clientName}`:"Used"},
+                      unregistered:{bg:"#111525",border:"#7b87b8",color:"#7b87b8",icon:"?",msg:"Hindi registered sa Port Index"},
+                    }[portStatus.status]||{bg:"#111525",border:"#222840",color:"#7b87b8",icon:"?",msg:portStatus.status};
+                    return (
+                      <div style={{background:pStyle.bg,border:`1px solid ${pStyle.border}44`,borderRadius:8,padding:"8px 12px",marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
+                        <span style={{fontSize:16,color:pStyle.color}}>{pStyle.icon}</span>
+                        <div style={{flex:1}}>
+                          <span style={{fontFamily:"monospace",fontSize:12,fontWeight:700,color:pStyle.color}}>{portKey}</span>
+                          <span style={{fontSize:11,color:"#7b87b8",marginLeft:8}}>{pStyle.msg}</span>
+                        </div>
+                        {portStatus.status==="used"&&portStatus.jobId!==selected&&(
+                          <span style={{background:"#f05555",color:"#fff",borderRadius:5,padding:"2px 7px",fontSize:10,fontWeight:700}}>⛔ CONFLICT</span>
+                        )}
+                        {portStatus.status==="available"||portStatus.status==="reserved"||portStatus.status==="unregistered" ? null : null}
+                      </div>
+                    );
+                  })()}
 
-  <div style = {{ display: "flex", gap: 8 }}>
-    <input
-      value    = {editUser}
-      onChange = {e => setEditUser(e.target.value)}
-      style    = {{
-        flex        : 1,
-        padding     : "12px",
-        background  : "#111525",
-        border      : "1px solid #4d8ef5",
-        color       : "#4d8ef5",
-        borderRadius: 8,
-        fontFamily  : "monospace"
-      }}
-    />
+                  {/* EDITABLE USERNAME */}
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", color: "#7b87b8", marginBottom: 6 }}>
+                      USERNAME <span style={{ color: "#4d8ef5", fontWeight: 600 }}>· pwede i-edit kapag nagkamali</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <input
+                        style={{ flex: 1, background: "#111525", border: "1.5px solid #4d8ef5", borderRadius: 10, padding: "12px 16px", fontFamily: "monospace", fontSize: 16, fontWeight: 800, color: "#4d8ef5", outline: "none", letterSpacing: 1 }}
+                        value={editUser}
+                        onChange={e => setEditUser(e.target.value)}
+                        placeholder="Username..."
+                      />
+                      <button style={s.copyBtn} onClick={() => copyToClipboard(editUser, "username")}>
+                        {copied === "username" ? "✓ Copied!" : "Copy"}
+                      </button>
+                    </div>
+                    <div style={{ fontSize: 10.5, color: "#7b87b8", marginTop: 5 }}>
+                      Auto-generated: {selectedJob.lcp}{selectedJob.nap}{selectedJob.port}@1000{selected?.slice(-6).toUpperCase()} · I-edit kung kailangan
+                    </div>
+                  </div>
 
-    <button onClick = {() => copyToClipboard(editUser, "username")}>
-      Copy
-    </button>
-  </div>
-</div>
+                  {/* EDITABLE PASSWORD */}
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", color: "#7b87b8", marginBottom: 6 }}>
+                      PASSWORD <span style={{ color: "#9b78f5", fontWeight: 600 }}>· MAC Address · pwede i-edit kapag may typo</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <input
+                        style={{ flex: 1, background: "#111525", border: "1.5px solid #9b78f5", borderRadius: 10, padding: "12px 16px", fontFamily: "monospace", fontSize: 16, fontWeight: 800, color: "#9b78f5", outline: "none", letterSpacing: 2 }}
+                        value={editPass}
+                        onChange={e => setEditPass(e.target.value)}
+                        placeholder="XX:XX:XX:XX:XX:XX"
+                      />
+                      <button style={{ ...s.copyBtn, borderColor: "#9b78f5", color: "#9b78f5" }} onClick={() => copyToClipboard(editPass, "password")}>
+                        {copied === "password" ? "✓ Copied!" : "Copy"}
+                      </button>
+                    </div>
+                    <div style={{ fontSize: 10.5, color: "#7b87b8", marginTop: 5 }}>
+                      Mula sa MAC Address ng modem na ibinigay ng tech · I-edit kung may typo
+                    </div>
+                  </div>
 
-{/* EDITABLE PASSWORD */}
-<div style = {{ marginBottom: 14 }}>
-<div style = {{ fontSize: 10, fontWeight: 700, color: "#7b87b8", marginBottom: 6 }}>
-    PASSWORD (Editable)
-  </div>
-
-  <div style = {{ display: "flex", gap: 8 }}>
-    <input
-      value    = {editPass}
-      onChange = {e => setEditPass(e.target.value)}
-      style    = {{
-        flex        : 1,
-        padding     : "12px",
-        background  : "#111525",
-        border      : "1px solid #9b78f5",
-        color       : "#9b78f5",
-        borderRadius: 8,
-        fontFamily  : "monospace"
-      }}
-    />
-
-    <button onClick = {() => copyToClipboard(editPass, "password")}>
-      Copy
-    </button>
-  </div>
-</div>
-
-{/* SUMMARY BOX — FINAL FIX */}
-<div
-  style={{
-    background: "#0d1535",
-    border: "2px solid #4d8ef5",
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 12
-  }}
->
-  <div
-    style={{
-      color: "#4d8ef5",
-      fontWeight: 800,
-      marginBottom: 12
-    }}
-  >
-    📤 Credentials for Technician
-  </div>
-
-  <div style={{ marginBottom: 8 }}>
-    <div style={{ fontSize: 12, color: "#7b87b8" }}>Username</div>
-    <div style={{ color: "#4d8ef5", fontFamily: "monospace" }}>
-      {editUser || "—"}
-    </div>
-  </div>
-
-  <div style={{ marginBottom: 12 }}>
-    <div style={{ fontSize: 12, color: "#7b87b8" }}>Password</div>
-    <div style={{ color: "#9b78f5", fontFamily: "monospace" }}>
-      {editPass || "—"}
-    </div>
-  </div>
-
-  <button
-    onClick={() => {
-      copyToClipboard(
-        `Username: ${editUser}\nPassword: ${editPass}`,
-        "both"
-      );
-    }}
-    style={{
-      width: "100%",
-      padding: 12,
-      background: "#1a2a50",
-      border: "2px solid #4d8ef5",
-      color: "#4d8ef5",
-      borderRadius: 10,
-      cursor: "pointer",
-      fontWeight: 700
-    }}
-  >
-    {copied === "both" ? "✓ Copied!" : "📋 Copy Username + Password"}
-  </button>
-</div>
-
-                  {/* SUMMARY BOX — para ibigay sa tech */}
+                  {/* SUMMARY BOX */}
                   <div style={{ background: "#0d1535", border: "1px solid #4d8ef5", borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
                     <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#4d8ef5", marginBottom: 10 }}>
                       📤 Credentials na Ibibigay sa Tech
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: "90px 1fr", gap: "8px 12px", alignItems: "start" }}>
                       <span style={{ fontSize: 11, fontWeight: 700, color: "#7b87b8" }}>Username:</span>
-                      <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: "#4d8ef5", wordBreak: "break-all" }}>{generatedUsername}</span>
+                      <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: "#4d8ef5", wordBreak: "break-all" }}>{editUser || "—"}</span>
                       <span style={{ fontSize: 11, fontWeight: 700, color: "#7b87b8" }}>Password:</span>
-                      <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: "#9b78f5", wordBreak: "break-all" }}>{generatedPassword}</span>
+                      <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: "#9b78f5", wordBreak: "break-all" }}>{editPass || "—"}</span>
                     </div>
                     <button style={{ ...s.copyBtn, marginTop: 12, width: "100%", justifyContent: "center", background: "#1a2a50" }}
-                      onClick={() => copyToClipboard(`Username: ${generatedUsername}\nPassword: ${generatedPassword}`, "both")}>
+                      onClick={() => copyToClipboard(`Username: ${editUser}\nPassword: ${editPass}`, "both")}>
                       {copied === "both" ? "✓ Copied Both!" : "📋 Copy Username + Password"}
                     </button>
                   </div>

@@ -5,6 +5,7 @@ import { SITES, TASK_COLORS, TASK_BG, STATUS_COLORS, STATUS_BG } from "../consta
 import Reports from "./Report";
 import Materials from "./Material";
 import MaterialsInventory from "./MaterialsInventory";
+import PortManagement from "./PortManagement";
 import KPI from "./KPI";
 import Attendance from "./Attendance";
 import JobTracking from "./JobTracking";
@@ -303,11 +304,10 @@ export default function Dispatcher({ user, onLogout }) {
     ["calendar","📅","Calendar",null],
     ["attendance","🗂","Attendance",null],
     ["materials","🗃","Materials",null],
-    ["inventory","📦","Inventory",null],
     ["trash","🗑️","Trash",deletedList.length>0?deletedList.length:null],
   ] : [];
 
-  const pageLabels={dashboard:"Dashboard",jobs:"Job Orders",pipeline:"Pipeline",dispatch:"Dispatch Board",technicians:"Technicians",reports:"Reports",kpi:"KPI Reports",jobtracking:"Job Tracking",calendar:"Calendar",attendance:"Attendance",materials:"Materials",inventory:"Inventory",trash:"Trash"};
+  const pageLabels={dashboard:"Dashboard",jobs:"Job Orders",pipeline:"Pipeline",dispatch:"Dispatch Board",technicians:"Technicians",reports:"Reports",kpi:"KPI Reports",jobtracking:"Job Tracking",calendar:"Calendar",attendance:"Attendance",materials:"Materials",inventory:"Inventory",ports:"Port Management",trash:"Trash"};
 
   // ── CSR/ADMIN VIEW: Only admin section pages ──
   if (isCsr) {
@@ -653,6 +653,7 @@ export default function Dispatcher({ user, onLogout }) {
           {page==="attendance"&&<Attendance/>}
           {page==="materials"&&<Materials/>}
           {page==="inventory"&&<div><MaterialsInventory/></div>}
+          {page==="ports"&&<div><PortManagement/></div>}
 
           {page==="trash"&&(
             <div>
